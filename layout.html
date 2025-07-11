@@ -12759,12 +12759,12 @@
 
         for (const block of blocks) {
           this.byNum[block.number] = block;
-          // if (block.successors.length === 2) {
-          //   // HACK: Swap the true and false branches of tests
-          //   const tmp = block.successors[0];
-          //   block.successors[0] = block.successors[1];
-          //   block.successors[1] = tmp;
-          // }
+          if (block.successors.length === 2) {
+            // HACK: Swap the true and false branches of tests
+            const tmp = block.successors[0];
+            block.successors[0] = block.successors[1];
+            block.successors[1] = tmp;
+          }
 
           const el = document.createElement("div");
           el.classList.add("block");
@@ -12926,19 +12926,6 @@
         }
       }
 
-      pushdownBlock(block) {
-        console.log(`Pushing down successors of block ${block.number}`);
-        const successors = block.successors.map(id => this.byNum[id]);
-        for (const succ of successors) {
-          if (succ.attributes.includes("backedge")) {
-            continue;
-          }
-
-          succ.pos.y = Math.max(succ.pos.y, block.pos.y + block.contentSize.y + GAP_ABOVE_CHILDREN);
-          this.pushdownBlock(succ);
-        }
-      }
-
       render(blocks) {
         for (const block of blocks) {
           const el = this.els[block.number];
@@ -12999,12 +12986,7 @@
       layouter.trackBlock(mirBlocks[0], track);
       layouter.sizeTrack(track);
       layouter.layoutTrack(track);
-      console.log(layouter.tracks);
       layouter.layoutBlock(mirBlocks[0]);
-
-      // layouter.sizeBlock(mirBlocks[0]);
-      // layouter.layoutBlock(mirBlocks[0], { x: 0, y: 0 });
-      // layouter.pushdownBlock(mirBlocks[0]);
 
       layouter.render(mirBlocks);
 
