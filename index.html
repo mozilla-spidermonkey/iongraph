@@ -88,6 +88,10 @@
             x: el.clientWidth,
             y: el.clientHeight,
           };
+
+          // Lock the element to its initially rendered size plus fudge factor because text sucks
+          el.style.width = `${block.contentSize.x + 10}px`;
+          el.style.height = `${block.contentSize.y}px`;
         }
       }
 
@@ -110,6 +114,7 @@
       }
 
       trackBlock(block, track, tracksByLoopDepth = null) {
+        assert(track);
         console.log(`Tracking block ${block.number} into track ${track.number}`);
         assert(!block.track, `block ${block.number} has already been visited`);
 
@@ -135,20 +140,21 @@
               continue;
             }
 
-            // TODO: Eventually loop depth alone will be insufficient for popping the stack.
-            // When we have immediate postdominators, though, we can just iterate straight from a
-            // loop header to the node after the loop, or immediately from the branch to the postdominator,
-            // and put the children on a worklist to be tracked.
-            if (succ.loopDepth < block.loopDepth) {
-              this.trackBlock(succ, tracksByLoopDepth[succ.loopDepth]);
-              continue;
-            }
             if (succ.attributes.includes("backedge")) {
               // Special case: track in the same block as the header and proceed no further
               const header = this.byNum[succ.successors[0]];
               assert(header.track);
               succ.track = header.track;
               header.track.blocks.push(succ);
+              continue;
+            }
+
+            // TODO: Eventually loop depth alone will be insufficient for popping the stack.
+            // When we have immediate postdominators, though, we can just iterate straight from a
+            // loop header to the node after the loop, or immediately from the branch to the postdominator,
+            // and put the children on a worklist to be tracked.
+            if (succ.loopDepth < block.loopDepth) {
+              this.trackBlock(succ, tracksByLoopDepth[succ.loopDepth], tracksByLoopDepth.slice(0, succ.loopDepth + 1));
               continue;
             }
 
@@ -207,7 +213,10 @@
 
       layoutBlock(block, y = 0) {
         console.log(`Laying out block ${block.number}`);
-        block.pos = { x: block.track.x + block.track.backedgeWidth, y: Math.max(block.pos?.y ?? 0, y) };
+        block.pos = {
+          x: block.track.x + block.track.backedgeWidth,
+          y: Math.max(block.pos?.y ?? 0, y),
+        };
 
         if (block.attributes.includes("backedge")) {
           const header = this.byNum[block.successors[0]];
@@ -222,6 +231,19 @@
         const childY = block.pos.y + block.contentSize.y + GAP_ABOVE_CHILDREN;
         for (const succ of successors) {
           this.layoutBlock(succ, childY);
+        }
+      }
+
+      pushdownBlock(block) {
+        console.log(`Pushing down successors of block ${block.number}`);
+        const successors = block.successors.map(id => this.byNum[id]);
+        for (const succ of successors) {
+          if (succ.attributes.includes("backedge")) {
+            continue;
+          }
+
+          succ.pos.y = Math.max(succ.pos.y, block.pos.y + block.contentSize.y + GAP_ABOVE_CHILDREN);
+          this.pushdownBlock(succ);
         }
       }
 
@@ -260,8 +282,8 @@
               } else {
                 const x2 = succ.pos.x + PORT_START;
                 const y2 = succ.pos.y;
-                // const ym = y1 + GAP_ABOVE_CHILDREN / 2;
-                const ym = y2 - GAP_ABOVE_CHILDREN / 2;
+                const ym = y1 + GAP_ABOVE_CHILDREN / 2;
+                // const ym = y2 - GAP_ABOVE_CHILDREN / 2;
                 const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
                 arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
                 svg.appendChild(arrow);
@@ -269,10 +291,6 @@
             }
           }
         }
-      }
-
-      isDirectSucc(block, succ) {
-        return succ.loopDepth >= block.loopDepth && !succ.attributes.includes("backedge");
       }
     }
 
@@ -289,9 +307,15 @@
 
       layouter.render(mirBlocks);
 
+      let maxX = 0, maxY = 0;
+      for (const block of mirBlocks) {
+        maxX = Math.max(maxX, block.pos.x + block.contentSize.x);
+        maxY = Math.max(maxY, block.pos.y + block.contentSize.y);
+      }
+
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("width", window.container.clientWidth);
-      svg.setAttribute("height", window.container.clientHeight);
+      svg.setAttribute("width", maxX);
+      svg.setAttribute("height", maxY + GAP_ABOVE_CHILDREN);
       window.container.appendChild(svg);
 
       layouter.renderArrows(mirBlocks, svg);
