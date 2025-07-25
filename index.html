@@ -74,6 +74,7 @@
           } else if (block.attributes.includes("backedge")) {
             desc = " (backedge)";
           }
+          desc += ` (LD=${block.loopDepth})`;
           html += `<h2>Block ${block.number}${desc}</h2>`;
           html += `<div class="instructions">`;
           for (const ins of block.instructions) {
