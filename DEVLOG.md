@@ -193,3 +193,5 @@ As for layering, I've been struggling with how to track all that. But one thing 
 Or perhaps we don't even need to flatten it all to a single list! Maybe we could genuinely just treat it as a subgraph. But I think we'll have enough fancy layer crossings that I want my edges to operate in a single flat list of layers.
 
 This means that I do need to explicitly find loops. Each node will belong to one and only one loop (or the root), and will be layered according to that loop. I will not track nodes belonging to multiple loops; I can just walk the tree of loops for that since loops do form a tree.
+
+Ew, nasty: loop headers need to be layer N in their parent context, but also layer 0 in their own. This sucks. I guess loop headers can just have a layer in their parent context only, and when we flatten the layers, we can treat them as layer 0 in their own context.

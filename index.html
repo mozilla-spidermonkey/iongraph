@@ -90,6 +90,7 @@
             y: el.clientHeight,
           };
           block.pos = { x: 0, y: 0 };
+          block.loopLayer = 0;
 
           // Lock the element to its initially rendered size plus fudge factor because text sucks
           el.style.width = `${block.contentSize.x + 10}px`;
@@ -105,7 +106,8 @@
       }
 
       layout() {
-        const firstBlock = this.blocks[0]; // TODO: Determine first block from graph instead of number
+        const firstBlock = this.blocks[0]; // TODO: Determine first block(s) from graph instead of number
+        const loopHeaders = this.blocks.filter(b => b.attributes.includes("loopheader"));
 
         // Process:
         // - Find loops and assign loop IDs to each block. Use loop header ID as loop ID.
@@ -113,6 +115,13 @@
         // - ...TODO
 
         this.findLoops(firstBlock);
+        for (const loopHeader of [firstBlock, ...loopHeaders]) {
+          this.layerInLoop(loopHeader)
+        }
+
+        for (const block of this.blocks) {
+          console.log(`Block ${block.number}: loop ${block.loopID}, loop layer ${block.loopLayer}`);
+        }
       }
 
       // Walks through the graph tracking which loop each block belongs to. As
@@ -121,21 +130,40 @@
       // at least one loop, and the loop it belongs to can be looked up by loop
       // depth.
       findLoops(block, loopsByDepth = [null]) {
-        const lookupDepth = block.attributes.includes("loopheader") ? block.loopDepth - 1 : block.loopDepth;
-        if (lookupDepth < loopsByDepth.length - 1) {
-          loopsByDepth = loopsByDepth.slice(0, lookupDepth + 1);
-        }
-        assert(lookupDepth < loopsByDepth.length);
-        block.loopID = loopsByDepth[lookupDepth];
-
         if (block.attributes.includes("loopheader")) {
           assert(block.loopDepth === loopsByDepth.length);
+          block.parentLoop = loopsByDepth[loopsByDepth.length - 1];
           loopsByDepth = [...loopsByDepth, block.number];
         }
+
+        if (block.loopDepth < loopsByDepth.length - 1) {
+          loopsByDepth = loopsByDepth.slice(0, block.loopDepth + 1);
+        }
+        assert(block.loopDepth < loopsByDepth.length);
+        block.loopID = loopsByDepth[block.loopDepth];
 
         if (!block.attributes.includes("backedge")) {
           for (const succ of this.successorBlocks(block)) {
             this.findLoops(succ, loopsByDepth);
+          }
+        }
+      }
+
+      layerInLoop(block, layer = 0, loopID = -1) {
+        if (loopID === -1) {
+          loopID = block.loopID;
+        }
+
+        const isLoopHeaderInCurrentLoop = block.attributes.includes("loopheader") && block.parentLoop === loopID;
+        let nextLayer = layer;
+        if (block.loopID === loopID || isLoopHeaderInCurrentLoop) {
+          block.loopLayer = Math.max(layer, block.loopLayer);
+          nextLayer = layer + 1;
+        }
+
+        if (!block.attributes.includes("backedge")) {
+          for (const succ of this.successorBlocks(block)) {
+            this.layerInLoop(succ, nextLayer, loopID);
           }
         }
       }
