@@ -53,8 +53,9 @@
       constructor(container, blocks) {
         this.blocks = blocks;
         this.byNum = {};
-        this.tracks = [];
         this.els = {};
+
+        this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
         for (const block of blocks) {
           this.byNum[block.number] = block;
@@ -90,7 +91,13 @@
             y: el.clientHeight,
           };
           block.pos = { x: 0, y: 0 };
-          block.loopLayer = 0;
+
+          block.layer = -1;
+          if (block.attributes.includes("loopheader")) {
+            block.loopHeight = 0;
+            block.parentLoop = null;
+            block.outgoingEdges = [];
+          }
 
           // Lock the element to its initially rendered size plus fudge factor because text sucks
           el.style.width = `${block.contentSize.x + 10}px`;
@@ -99,6 +106,10 @@
 
         this.layout();
         this.render();
+      }
+
+      predecessorBlocks(block) {
+        return block.predecessors.map(id => this.byNum[id]);
       }
 
       successorBlocks(block) {
@@ -114,13 +125,19 @@
         // - Sort blocks into layers.
         // - ...TODO
 
+        // Make the first block a pseudo loop header.
+        firstBlock.loopHeight = 0;
+        firstBlock.parentLoop = null;
+        firstBlock.outgoingEdges = [];
+
         this.findLoops(firstBlock);
-        for (const loopHeader of [firstBlock, ...loopHeaders]) {
-          this.layerInLoop(loopHeader)
-        }
+        this.layer(firstBlock);
 
         for (const block of this.blocks) {
-          console.log(`Block ${block.number}: loop ${block.loopID}, loop layer ${block.loopLayer}`);
+          console.log(`Block ${block.number}: loop ${block.loopID}, layer ${block.layer}`);
+          if (block.attributes.includes("loopheader")) {
+            console.log(`  Loop header: parent ${block.parentLoop.number}, loop height ${block.loopHeight}`);
+          }
         }
       }
 
@@ -129,41 +146,61 @@
       // block has lesser loopDepth than its parent, that means it is outside
       // at least one loop, and the loop it belongs to can be looked up by loop
       // depth.
-      findLoops(block, loopsByDepth = [null]) {
-        if (block.attributes.includes("loopheader")) {
-          assert(block.loopDepth === loopsByDepth.length);
-          block.parentLoop = loopsByDepth[loopsByDepth.length - 1];
-          loopsByDepth = [...loopsByDepth, block.number];
+      findLoops(block, loopIDsByDepth = null) {
+        if (loopIDsByDepth === null) {
+          loopIDsByDepth = [block.number];
         }
 
-        if (block.loopDepth < loopsByDepth.length - 1) {
-          loopsByDepth = loopsByDepth.slice(0, block.loopDepth + 1);
+        if (block.attributes.includes("loopheader")) {
+          assert(block.loopDepth === loopIDsByDepth.length);
+          const parentID = loopIDsByDepth[loopIDsByDepth.length - 1];
+          const parent = this.byNum[parentID];
+          block.parentLoop = parent;
+
+          loopIDsByDepth = [...loopIDsByDepth, block.number];
         }
-        assert(block.loopDepth < loopsByDepth.length);
-        block.loopID = loopsByDepth[block.loopDepth];
+
+        if (block.loopDepth < loopIDsByDepth.length - 1) {
+          loopIDsByDepth = loopIDsByDepth.slice(0, block.loopDepth + 1);
+        }
+        assert(block.loopDepth < loopIDsByDepth.length);
+        block.loopID = loopIDsByDepth[block.loopDepth];
 
         if (!block.attributes.includes("backedge")) {
           for (const succ of this.successorBlocks(block)) {
-            this.findLoops(succ, loopsByDepth);
+            this.findLoops(succ, loopIDsByDepth);
           }
         }
       }
 
-      layerInLoop(block, layer = 0, loopID = -1) {
-        if (loopID === -1) {
-          loopID = block.loopID;
+      layer(block, layer = 0) {
+        if (block.attributes.includes("backedge")) {
+          block.layer = this.successorBlocks(block)[0].layer;
+          return;
         }
 
-        const isLoopHeaderInCurrentLoop = block.attributes.includes("loopheader") && block.parentLoop === loopID;
-        let nextLayer = layer;
-        if (block.loopID === loopID || isLoopHeaderInCurrentLoop) {
-          block.loopLayer = Math.max(layer, block.loopLayer);
-          nextLayer = layer + 1;
+        block.layer = Math.max(block.layer, layer);
+
+        let loopHeader = this.byNum[block.loopID];
+        while (loopHeader) {
+          loopHeader.loopHeight = Math.max(loopHeader.loopHeight, block.layer - loopHeader.layer + 1);
+          loopHeader = loopHeader.parentLoop;
         }
 
-        if (!block.attributes.includes("backedge")) {
-          for (const succ of this.successorBlocks(block)) {
-            this.layerInLoop(succ, nextLayer, loopID);
+        for (const succ of this.successorBlocks(block)) {
+          if (succ.loopDepth < block.loopDepth) {
+            // This is an outgoing edge from the current loop.
+            // Track it on our current loop's header to be layered later.
+            const loopHeader = this.byNum[block.loopID];
+            loopHeader.outgoingEdges.push(succ);
+          } else {
+            this.layer(succ, layer + 1);
+          }
+        }
+
+        if (block.attributes.includes("loopheader")) {
+          for (const succ of block.outgoingEdges) {
+            this.layer(succ, layer + block.loopHeight);
           }
         }
       }
