@@ -89,175 +89,80 @@
             x: el.clientWidth,
             y: el.clientHeight,
           };
+          block.pos = { x: 0, y: 0 };
 
           // Lock the element to its initially rendered size plus fudge factor because text sucks
           el.style.width = `${block.contentSize.x + 10}px`;
           el.style.height = `${block.contentSize.y}px`;
         }
+
+        this.layout();
+        this.render();
       }
 
-      newTrack(parent = null) {
-        const track = {
-          number: this.tracks.length,
-          offset: 0, // offset from the parent track's content
-          blocks: [],
-          children: [],
-
-          backedgeWidth: 0, // width of backedge nodes; set during sizeTrack
-          width: 0, // width including children; set during sizeTrack
-          x: 0, // final x position of track; set during layoutTrack
-        };
-        this.tracks.push(track);
-        if (parent) {
-          parent.children.push(track);
-        }
-        return track;
+      successorBlocks(block) {
+        return block.successors.map(id => this.byNum[id]);
       }
 
-      trackBlock(block, track, tracksByLoopDepth = null) {
-        assert(track);
-        console.log(`Tracking block ${block.number} into track ${track.number}`);
-        assert(!block.track, `block ${block.number} has already been visited`);
+      layout() {
+        const firstBlock = this.blocks[0]; // TODO: Determine first block from graph instead of number
 
-        assert(!block.attributes.includes("backedge")); // backedges are handled in a special case later
-        block.track = track;
-        track.blocks.push(block);
-        if (!tracksByLoopDepth) {
-          tracksByLoopDepth = [track];
+        // Process:
+        // - Find loops and assign loop IDs to each block. Use loop header ID as loop ID.
+        // - Sort blocks into layers.
+        // - ...TODO
+
+        this.findLoops(firstBlock);
+      }
+
+      // Walks through the graph tracking which loop each block belongs to. As
+      // each block is visited, it is assigned the current loop ID. If the
+      // block has lesser loopDepth than its parent, that means it is outside
+      // at least one loop, and the loop it belongs to can be looked up by loop
+      // depth.
+      findLoops(block, loopsByDepth = [null]) {
+        const lookupDepth = block.attributes.includes("loopheader") ? block.loopDepth - 1 : block.loopDepth;
+        if (lookupDepth < loopsByDepth.length - 1) {
+          loopsByDepth = loopsByDepth.slice(0, lookupDepth + 1);
         }
+        assert(lookupDepth < loopsByDepth.length);
+        block.loopID = loopsByDepth[lookupDepth];
 
-        const successors = block.successors.map(id => this.byNum[id]);
         if (block.attributes.includes("loopheader")) {
-          // The contents of a loop always get a new track.
-          assert(successors.length === 1);
-          const newTrack = this.newTrack(track);
-          newTrack.offset = LOOP_INDENT;
-          const newTrackStack = [...tracksByLoopDepth, newTrack];
-          this.trackBlock(successors[0], newTrack, newTrackStack);
-        } else {
-          for (const [i, succ] of successors.entries()) {
-            if (succ.track) {
-              // If a block has already been tracked, then we are in a diamond of some kind.
-              continue;
-            }
+          assert(block.loopDepth === loopsByDepth.length);
+          loopsByDepth = [...loopsByDepth, block.number];
+        }
 
-            if (succ.attributes.includes("backedge")) {
-              // Special case: track in the same block as the header and proceed no further
-              const header = this.byNum[succ.successors[0]];
-              assert(header.track);
-              succ.track = header.track;
-              header.track.blocks.push(succ);
-              continue;
-            }
-
-            // TODO: Eventually loop depth alone will be insufficient for popping the stack.
-            // When we have immediate postdominators, though, we can just iterate straight from a
-            // loop header to the node after the loop, or immediately from the branch to the postdominator,
-            // and put the children on a worklist to be tracked.
-            if (succ.loopDepth < block.loopDepth) {
-              this.trackBlock(succ, tracksByLoopDepth[succ.loopDepth], tracksByLoopDepth.slice(0, succ.loopDepth + 1));
-              continue;
-            }
-
-            if (successors.length === 1) {
-              // This is the only successor, so it's a goto, so share the parent's block.
-              this.trackBlock(succ, track, tracksByLoopDepth);
-            } else {
-              // Generate one track per child. Loop depth isn't increasing, so we make a new track
-              // but replace the top of the stack with the new track instead of pushing it.
-              const newTrack = this.newTrack(track);
-              const newTrackStack = [...tracksByLoopDepth];
-              newTrackStack[newTrackStack.length - 1] = newTrack;
-              this.trackBlock(succ, newTrack, newTrackStack);
-            }
+        if (!block.attributes.includes("backedge")) {
+          for (const succ of this.successorBlocks(block)) {
+            this.findLoops(succ, loopsByDepth);
           }
         }
       }
 
-      // Set track width based on node contents and children.
-      sizeTrack(track) {
-        let contentWidth = 0; // excludes backedges
-        for (const block of track.blocks) {
-          if (block.attributes.includes("backedge")) {
-            track.backedgeWidth = Math.max(track.backedgeWidth, block.contentSize.x + BACKEDGE_DEDENT);
-          } else {
-            contentWidth = Math.max(contentWidth, block.contentSize.x);
-          }
-        }
-
-        let childWidth = 0;
-        for (const [i, child] of track.children.entries()) {
-          if (i > 0) {
-            childWidth += TRACK_GAP;
-          }
-          this.sizeTrack(child);
-          childWidth += child.width;
-        }
-
-        track.width = track.backedgeWidth + Math.max(contentWidth, childWidth);
-      }
-
-      // Positions tracks based on sizes and offsets.
-      layoutTrack(track, x = 0) {
-        track.x = x + track.offset;
-        console.log(`Laying out track ${track.number} at position ${track.x}`);
-
-        let childX = track.x + track.backedgeWidth;
-        for (const [i, child] of track.children.entries()) {
-          if (i > 0) {
-            childX += TRACK_GAP;
-          }
-          this.layoutTrack(child, childX);
-          childX = child.x + child.width;
-        }
-      }
-
-      layoutBlock(block, y = 0) {
-        console.log(`Laying out block ${block.number}`);
-        block.pos = {
-          x: block.track.x + block.track.backedgeWidth,
-          y: Math.max(block.pos?.y ?? 0, y),
-        };
-
-        if (block.attributes.includes("backedge")) {
-          const header = this.byNum[block.successors[0]];
-          block.pos = {
-            x: header.pos.x - block.contentSize.x - BACKEDGE_DEDENT,
-            y: header.pos.y + header.contentSize.y + GAP_ABOVE_CHILDREN,
-          };
-          return;
-        }
-
-        const successors = block.successors.map(id => this.byNum[id]);
-        const childY = block.pos.y + block.contentSize.y + GAP_ABOVE_CHILDREN;
-        for (const succ of successors) {
-          this.layoutBlock(succ, childY);
-        }
-      }
-
-      pushdownBlock(block) {
-        console.log(`Pushing down successors of block ${block.number}`);
-        const successors = block.successors.map(id => this.byNum[id]);
-        for (const succ of successors) {
-          if (succ.attributes.includes("backedge")) {
-            continue;
-          }
-
-          succ.pos.y = Math.max(succ.pos.y, block.pos.y + block.contentSize.y + GAP_ABOVE_CHILDREN);
-          this.pushdownBlock(succ);
-        }
-      }
-
-      render(blocks) {
-        for (const block of blocks) {
+      render() {
+        // Position all blocks according to layout
+        for (const block of this.blocks) {
           const el = this.els[block.number];
           el.style.left = `${block.pos.x}px`;
           el.style.top = `${block.pos.y}px`;
         }
-      }
 
-      renderArrows(blocks, svg) {
-        for (const block of blocks) {
+        let maxX = 0, maxY = 0;
+        for (const block of this.blocks) {
+          maxX = Math.max(maxX, block.pos.x + block.contentSize.x);
+          maxY = Math.max(maxY, block.pos.y + block.contentSize.y);
+        }
+
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("width", maxX);
+        svg.setAttribute("height", maxY + GAP_ABOVE_CHILDREN);
+        window.container.appendChild(svg);
+
+        layouter.renderArrows(this.blocks, svg);
+
+        // Render arrows
+        for (const block of this.blocks) {
           if (block.attributes.includes("backedge")) {
             const header = this.byNum[block.successors[0]];
             const x1 = block.pos.x + PORT_START;
@@ -293,33 +198,6 @@
           }
         }
       }
-    }
-
-    function layoutMir(mirBlocks) {
-      const layouter = new Graph(window.container, mirBlocks);
-
-      // TODO: Figure out the starting point by rank / predecessors instead of just starting with the first block in the list.
-
-      const track = layouter.newTrack();
-      layouter.trackBlock(mirBlocks[0], track);
-      layouter.sizeTrack(track);
-      layouter.layoutTrack(track);
-      layouter.layoutBlock(mirBlocks[0]);
-
-      layouter.render(mirBlocks);
-
-      let maxX = 0, maxY = 0;
-      for (const block of mirBlocks) {
-        maxX = Math.max(maxX, block.pos.x + block.contentSize.x);
-        maxY = Math.max(maxY, block.pos.y + block.contentSize.y);
-      }
-
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("width", maxX);
-      svg.setAttribute("height", maxY + GAP_ABOVE_CHILDREN);
-      window.container.appendChild(svg);
-
-      layouter.renderArrows(mirBlocks, svg);
     }
 
     function downwardArrow(x1, y1, x2, y2, ym, r, stroke = 1) {
@@ -420,7 +298,7 @@
 
     (async function () {
       const ion = await (await fetch("ion.json")).json();
-      layoutMir(ion.functions[2].passes[0].mir.blocks);
+      new Graph(window.container, ion.functions[2].passes[0].mir.blocks);
     })();
   </script>
 </body>

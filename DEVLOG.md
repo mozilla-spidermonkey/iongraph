@@ -178,3 +178,18 @@ So basically I think we can just do a modified Sugiyama like so:
 6. Draw edges with nice straight lines instead of Bezier ugliness.
 
 Conveniently this seems to avoid the most computationally complex parts of the problem.
+
+
+# 2025-07-30
+
+The same process I discussed before should still work, but I wanted to jot down some things I learned from Iain.
+
+First, OSR entrypoints are indeed a thing we'll have to worry about eventually, but we can handle them. The weirder problem is that it's possible to have disjoint graphs. It's possible in JS for branch pruning to sever a link between parts of the graph, but for an OSR entrypoint to keep the severed part of the graph alive. This means that the layout algorithm should be prepared to find multiple roots. Also, you don't want to "hang a loop by its insides", so in the OSR case, we actually will want to start at the OSR entrypoint's successor, then walk up the graph to a root (ignoring backedges and OSR entrypoints).
+
+Second, it's theoretically possible that in the future we could have cases where we have blocks that jump straight into the middle of loops. But it's highly unlikely, and even if we did, we could mark those blocks explicitly and handle them separately in the layout algorithm. (This came up because JSC does some kind of switch statement for OSR, where the different branches jump into different places in the graph.)
+
+As for layering, I've been struggling with how to track all that. But one thing I've been wanting from the UI is to be able to collapse loops and maybe eventually other control flow statements. But imagine collapsing a loop to one node - it would still have the same layout properties as if the loop was expanded. There is a clear notion of in and out, and if anything in the loop branches to anything else, the other node should be on a deeper layer. I think what this means is that I should actually do my layering such that the _entire_ loop is treated as a single node, and then the loop's contents are layered within that, and eventually it's all flattened to a single list.
+
+Or perhaps we don't even need to flatten it all to a single list! Maybe we could genuinely just treat it as a subgraph. But I think we'll have enough fancy layer crossings that I want my edges to operate in a single flat list of layers.
+
+This means that I do need to explicitly find loops. Each node will belong to one and only one loop (or the root), and will be layered according to that loop. I will not track nodes belonging to multiple loops; I can just walk the tree of loops for that since loops do form a tree.
