@@ -195,3 +195,11 @@ Or perhaps we don't even need to flatten it all to a single list! Maybe we could
 This means that I do need to explicitly find loops. Each node will belong to one and only one loop (or the root), and will be layered according to that loop. I will not track nodes belonging to multiple loops; I can just walk the tree of loops for that since loops do form a tree.
 
 Ew, nasty: loop headers need to be layer N in their parent context, but also layer 0 in their own. This sucks. I guess loop headers can just have a layer in their parent context only, and when we flatten the layers, we can treat them as layer 0 in their own context.
+
+---
+
+FINALLY I got it all working. I went through so many twists and turns to get there. The whole idea of "loop layering" was bullshit. The key observations:
+
+- We DO need to track loop heights in order to correctly layer the nodes that should come after loops.
+- To do this, we DO need to track loop IDs because as we update the layers of individual nodes, we need to update the heights of all loops they are part of in the loop tree.
+- Then, layering things after loops is as simple as deferring the layering of outgoing edges (lesser loop depth) until AFTER the loop itself is finished processing.
