@@ -53,7 +53,7 @@
     const BACKEDGE_DEDENT = LOOP_INDENT;
 
     const PORT_START = 16;
-    const PORT_SPACING = 36;
+    const PORT_SPACING = 40;
     const ARROW_RADIUS = 10;
 
     class Graph {
@@ -318,10 +318,10 @@
         // Walk down and up through the layers a few times
         for (let iteration = 0; iteration < 1; iteration++) { // "it's not a loop, it's an iteration" -ljharb
           const directions = [
-            [layoutNodesByLayer, node => node.successors], // downward
-            // [layoutNodesByLayer.toReversed(), node => node.predecessors], // upward
+            [layoutNodesByLayer, node => node.predecessors, node => node.successors], // downward
+            // [layoutNodesByLayer.toReversed(), node => node.successors, node => node.predecessors], // upward
           ]
-          for (const [layers, getSuccessors] of directions) {
+          for (const [layers, getPredecessors, getSuccessors] of directions) {
             for (let layer = 0; layer < layers.length - 1; layer++) {
               const nodes = layers[layer];
 
@@ -329,6 +329,15 @@
               for (let i = 0; i < nodes.length - 1; i++) {
                 const node = nodes[i];
                 const neighbor = nodes[i + 1];
+
+                // Special case: dummy nodes with the same destination should coalesce
+                if (
+                  node.block === null && neighbor.block === null
+                  && node.successors[0] === neighbor.successors[0] // yes, we always want actual successors
+                ) {
+                  neighbor.pos.x = node.pos.x;
+                  continue;
+                }
 
                 const nodeRightPlusPadding = node.pos.x + width(node) + BLOCK_GAP;
                 neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
@@ -338,21 +347,23 @@
               // up the edges.
               let nextCursor = 0;
               for (const node of nodes) {
-                for (const succNum of getSuccessors(node)) {
+                for (const [srcPort, succNum] of getSuccessors(node).entries()) {
                   let toShift = null;
                   for (let i = nextCursor; i < layers[layer + 1].length; i++) {
                     const nextNode = layers[layer + 1][i];
                     if (
-                      (nextNode.block === null && getSuccessors(nextNode)[0] === succNum)
+                      (nextNode.block === null && getSuccessors(nextNode)[0] === succNum && getPredecessors(nextNode)[0] === (node.block === null ? getPredecessors(node)[0] : node.block))
                       || (nextNode.block !== null && this.byNum[nextNode.block].number === succNum)
                     ) {
                       toShift = nextNode;
-                      nextCursor = i;
+                      nextCursor = i + 1;
                     }
                   }
 
                   if (toShift) {
-                    toShift.pos.x = Math.max(toShift.pos.x, node.pos.x);
+                    const srcPortOffset = node.block === null ? 0 : PORT_START + PORT_SPACING * srcPort;
+                    const dstPortOffset = toShift.block === null ? 0 : PORT_START;
+                    toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
                   }
                 }
               }
