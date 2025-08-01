@@ -67,10 +67,10 @@
         for (const block of blocks) {
           this.byNum[block.number] = block;
           if (block.successors.length === 2) {
-            // HACK: Swap the true and false branches of tests
-            const tmp = block.successors[0];
-            block.successors[0] = block.successors[1];
-            block.successors[1] = tmp;
+            // // HACK: Swap the true and false branches of tests
+            // const tmp = block.successors[0];
+            // block.successors[0] = block.successors[1];
+            // block.successors[1] = tmp;
           }
 
           const el = document.createElement("div");
@@ -97,7 +97,7 @@
             x: el.clientWidth,
             y: el.clientHeight,
           };
-          block.pos = { x: 0, y: 0 }; // TODO: Remove this, it belongs to layout nodes
+          block.pos = { x: 0, y: 0 }; // Not used for layout
 
           block.layer = -1;
           if (block.attributes.includes("loopheader")) {
@@ -111,8 +111,8 @@
           el.style.height = `${block.contentSize.y}px`;
         }
 
-        this.layout();
-        this.render();
+        const nodesByLayer = this.layout();
+        this.render(nodesByLayer);
       }
 
       predecessorBlocks(block) {
@@ -152,20 +152,6 @@
           }
         }
 
-        // Temporary: render debug view of dummy nodes
-        for (const nodes of layoutNodesByLayer) {
-          for (const node of nodes) {
-            if (node.block === null) {
-              const el = document.createElement("div");
-              el.classList.add("dummy");
-              el.innerText = `${node.predecessors[0]} -> ${node.successors[0]}`;
-              el.style.left = `${node.pos.x}px`;
-              el.style.top = `${node.pos.y}px`;
-              container.appendChild(el);
-            }
-          }
-        }
-
         // Temporary: log info about block layers
         for (const block of this.blocks) {
           console.log(`Block ${block.number}: loop ${block.loopID}, layer ${block.layer}`);
@@ -174,6 +160,8 @@
           }
         }
         console.log(layoutNodesByLayer);
+
+        return layoutNodesByLayer;
       }
 
       // Walks through the graph tracking which loop each block belongs to. As
@@ -373,59 +361,113 @@
         }
       }
 
-      render() {
-        // Position all blocks according to layout
-        for (const block of this.blocks) {
-          const el = this.els[block.number];
-          el.style.left = `${block.pos.x}px`;
-          el.style.top = `${block.pos.y}px`;
+      render(nodesByLayer) {
+        // Position blocks according to layout
+        for (const nodes of nodesByLayer) {
+          for (const node of nodes) {
+            if (node.block !== null) {
+              const block = this.byNum[node.block];
+              block.pos = node.pos;
+
+              const el = this.els[block.number];
+              el.style.left = `${node.pos.x}px`;
+              el.style.top = `${node.pos.y}px`;
+            }
+          }
         }
 
+        // Optional: render dummy nodes
+        if (false) {
+          for (const nodes of nodesByLayer) {
+            for (const node of nodes) {
+              if (node.block === null) {
+                const el = document.createElement("div");
+                el.classList.add("dummy");
+                el.innerText = `${node.predecessors[0]} -> ${node.successors[0]}`;
+                el.style.left = `${node.pos.x}px`;
+                el.style.top = `${node.pos.y}px`;
+                container.appendChild(el);
+              }
+            }
+          }
+        }
+
+        // Create and size the SVG
         let maxX = 0, maxY = 0;
         for (const block of this.blocks) {
           maxX = Math.max(maxX, block.pos.x + block.contentSize.x);
           maxY = Math.max(maxY, block.pos.y + block.contentSize.y);
         }
-
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("width", maxX);
         svg.setAttribute("height", maxY + LAYER_GAP);
         window.container.appendChild(svg);
 
         // Render arrows
-        for (const block of this.blocks) {
-          if (block.attributes.includes("backedge")) {
-            continue; // TODO: re-enable after backedges are positioned
-            const header = this.byNum[block.successors[0]];
-            const x1 = block.pos.x + PORT_START;
-            const y1 = block.pos.y;
-            const x2 = header.pos.x;
-            const y2 = header.pos.y + PORT_START;
-            const arrow = loopHeaderArrow(x1, y1, x2, y2, ARROW_RADIUS);
-            arrow.setAttribute("data-edge", `${block.number} -> ${header.number}`);
-            svg.appendChild(arrow);
-          } else {
-            const successors = block.successors.map(id => this.byNum[id]);
-            for (const [i, succ] of successors.entries()) {
-              const x1 = block.pos.x + PORT_START + PORT_SPACING * i;
-              const y1 = block.pos.y + block.contentSize.y;
+        for (let layer = 0; layer < nodesByLayer.length; layer++) {
+          const nodes = nodesByLayer[layer];
+          for (const node of nodes) {
+            for (const [i, succ] of node.successors.entries()) {
+              const destNode = nodesByLayer[layer + 1].find(n => (
+                (n.block !== null && this.byNum[n.block].number === succ)
+                || (n.block === null && n.successors[0] === succ && n.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block)) // TODO: find dummy nodes
+              ));
+              if (!destNode) {
+                continue;
+              }
 
-              if (succ.attributes.includes("backedge")) {
-                continue; // TODO: re-enable after backedges are positioned
-                const x2 = succ.pos.x + PORT_START;
-                const y2 = succ.pos.y + succ.contentSize.y;
-                const ym = y1 + LAYER_GAP / 2;
-                const arrow = backedgeArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
-                arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
-                svg.appendChild(arrow);
+              if (destNode.block !== null && this.byNum[destNode.block].attributes.includes("backedge")) {
+                continue; // TODO: Draw backedge arrow
               } else {
-                const x2 = succ.pos.x + PORT_START;
-                const y2 = succ.pos.y;
-                const ym = y1 + LAYER_GAP / 2;
-                // const ym = y2 - GAP_ABOVE_CHILDREN / 2;
-                const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
-                arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
+                const x1 = node.pos.x + (node.block !== null ? PORT_START + PORT_SPACING * i : 0);
+                const y1 = node.pos.y + (node.block !== null ? this.byNum[node.block].contentSize.y : 0);
+                const x2 = destNode.pos.x + (destNode.block !== null ? PORT_START : 0);
+                const y2 = destNode.pos.y;
+                const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
+                const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS, destNode.block !== null);
+                // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
                 svg.appendChild(arrow);
+              }
+            }
+          }
+        }
+
+        if (false) {
+          // Render arrows
+          for (const block of this.blocks) {
+            if (block.attributes.includes("backedge")) {
+              continue; // TODO: re-enable after backedges are positioned
+              const header = this.byNum[block.successors[0]];
+              const x1 = block.pos.x + PORT_START;
+              const y1 = block.pos.y;
+              const x2 = header.pos.x;
+              const y2 = header.pos.y + PORT_START;
+              const arrow = loopHeaderArrow(x1, y1, x2, y2, ARROW_RADIUS);
+              arrow.setAttribute("data-edge", `${block.number} -> ${header.number}`);
+              svg.appendChild(arrow);
+            } else {
+              const successors = block.successors.map(id => this.byNum[id]);
+              for (const [i, succ] of successors.entries()) {
+                const x1 = block.pos.x + PORT_START + PORT_SPACING * i;
+                const y1 = block.pos.y + block.contentSize.y;
+
+                if (succ.attributes.includes("backedge")) {
+                  continue; // TODO: re-enable after backedges are positioned
+                  const x2 = succ.pos.x + PORT_START;
+                  const y2 = succ.pos.y + succ.contentSize.y;
+                  const ym = y1 + LAYER_GAP / 2;
+                  const arrow = backedgeArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
+                  arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
+                  svg.appendChild(arrow);
+                } else {
+                  const x2 = succ.pos.x + PORT_START;
+                  const y2 = succ.pos.y;
+                  const ym = y1 + LAYER_GAP / 2;
+                  // const ym = y2 - GAP_ABOVE_CHILDREN / 2;
+                  const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
+                  arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
+                  svg.appendChild(arrow);
+                }
               }
             }
           }
@@ -433,7 +475,7 @@
       }
     }
 
-    function downwardArrow(x1, y1, x2, y2, ym, r, stroke = 1) {
+    function downwardArrow(x1, y1, x2, y2, ym, r, doArrowhead = true, stroke = 1) {
       assert(y1 + r <= ym && ym < y2 - r, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`);
 
       let path = "";
@@ -460,8 +502,10 @@
       p.setAttribute("stroke-width", stroke);
       g.appendChild(p);
 
-      const v = arrowhead(x2, y2, 180);
-      g.appendChild(v);
+      if (doArrowhead) {
+        const v = arrowhead(x2, y2, 180);
+        g.appendChild(v);
+      }
 
       return g;
     }
