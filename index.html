@@ -132,6 +132,7 @@
 
         this.findLoops(firstBlock);
         this.layer(firstBlock);
+        const layoutNodesByLayer = this.makeLayoutNodes();
 
         for (const block of this.blocks) {
           console.log(`Block ${block.number}: loop ${block.loopID}, layer ${block.layer}`);
@@ -139,6 +140,7 @@
             console.log(`  Loop header: parent ${block.parentLoop.number}, loop height ${block.loopHeight}`);
           }
         }
+        console.log(layoutNodesByLayer);
       }
 
       // Walks through the graph tracking which loop each block belongs to. As
@@ -203,6 +205,70 @@
             this.layer(succ, layer + block.loopHeight);
           }
         }
+      }
+
+      makeLayoutNodes() {
+        let blocksByLayer;
+        {
+          const blocksByLayerObj = {};
+          for (const block of this.blocks) {
+            if (block.attributes.includes("backedge")) {
+              continue;
+            }
+
+            if (!blocksByLayerObj[block.layer]) {
+              blocksByLayerObj[block.layer] = [];
+            }
+            blocksByLayerObj[block.layer].push(block);
+          }
+          blocksByLayer = Object.entries(blocksByLayerObj)
+            .map(([layer, blocks]) => [Number(layer), blocks])
+            .sort((a, b) => a[0] - b[0])
+            .map(([_, blocks]) => blocks);
+          console.log(blocksByLayer);
+        }
+
+        const layoutNodesByLayer = blocksByLayer.map(() => []);
+        const activeEdges = [];
+        for (const [layer, blocks] of blocksByLayer.entries()) {
+          // Delete any active edges that terminate at this layer, since we do
+          // not want to make any dummy nodes for them.
+          for (const block of blocks) {
+            for (let i = activeEdges.length - 1; i >= 0; i--) {
+              const [from, to] = activeEdges[i];
+              if (to === block.number) {
+                activeEdges.splice(i, 1);
+              }
+            }
+          }
+
+          // Create dummy nodes for active edges.
+          for (const edge of activeEdges) {
+            const [from, to] = edge;
+            layoutNodesByLayer[layer].push({
+              predecessors: [from],
+              successors: [to],
+              block: null,
+            });
+          }
+
+          // Create real nodes for each block on the layer.
+          for (const block of blocks) {
+            layoutNodesByLayer[layer].push({
+              predecessors: block.predecessors,
+              successors: block.successors,
+              block: block.number,
+            });
+            for (const succ of this.successorBlocks(block)) {
+              if (succ.attributes.includes("backedge")) {
+                continue;
+              }
+              activeEdges.push([block.number, succ.number]);
+            }
+          }
+        }
+
+        return layoutNodesByLayer;
       }
 
       render() {

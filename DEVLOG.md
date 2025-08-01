@@ -128,14 +128,14 @@ Let's consider these cases, with things pushed down according to loop depth:
 
 ```
         ┌─────┐                                     ┌─────┐
-   ┌────┤  H  │                                ┌────┤  H  │                      
-   │    └──┬──┘                                │    └──┬──┘                      
-┌──┴──┐    │                                ┌──┴──┐    │                         
-│  G  │ ┌──┴──────────┐                     │  G  │ ┌──┴──────────┐              
-└──┬──┘ │      A      │                     └──┬──┘ │      A      │              
-   │    └──┬───┬───┬──┘                        │    └──┬───┬───┬──┘              
-   │       │   │   └─────────────┐             │       │   │   └─────────────┐   
-   │       │   └──────┐          │             │       │   └──────┐          │   
+   ┌────┤  H  │                                ┌────┤  H  │
+   │    └──┬──┘                                │    └──┬──┘
+┌──┴──┐    │                                ┌──┴──┐    │
+│  G  │ ┌──┴──────────┐                     │  G  │ ┌──┴──────────┐
+└──┬──┘ │      A      │                     └──┬──┘ │      A      │
+   │    └──┬───┬───┬──┘                        │    └──┬───┬───┬──┘
+   │       │   │   └─────────────┐             │       │   │   └─────────────┐
+   │       │   └──────┐          │             │       │   └──────┐          │
    │    ┌──┴──┐       │          │             │    ┌──┴──┐    ┌──┴──┐       │
    └────┤  B  │       │          │             └────┤  B  │    │  C  │       │
         └──┬──┘       │          │                  └──┬──┘    └──┬──┘       │
@@ -145,11 +145,11 @@ Let's consider these cases, with things pushed down according to loop depth:
            │   ┌──────│──────────┘                     │   ┌──────│──────────┘
         ┌──┴───┴──┐   │                             ┌──┴───┴──┐   │              
         │    E    │   │                             │    E    │   │              
-        └──┬──────┘   │                             └──┬──────┘   │              
+        └──┬──────┘   │                             └──┬──────┘   │
            │     ┌────┘                                │     ┌────┘              
-        ┌──┴─────┴──┐                               ┌──┴─────┴──┐                
-        │     F     │                               │     F     │                
-        └───────────┘                               └───────────┘                
+        ┌──┴─────┴──┐                               ┌──┴─────┴──┐
+        │     F     │                               │     F     │
+        └───────────┘                               └───────────┘
 ```
 
 According to loop depth, the first loop should consist of H, A, B, and G, and the second loop should also include C.
@@ -203,3 +203,16 @@ FINALLY I got it all working. I went through so many twists and turns to get the
 - We DO need to track loop heights in order to correctly layer the nodes that should come after loops.
 - To do this, we DO need to track loop IDs because as we update the layers of individual nodes, we need to update the heights of all loops they are part of in the loop tree.
 - Then, layering things after loops is as simple as deferring the layering of outgoing edges (lesser loop depth) until AFTER the loop itself is finished processing.
+
+
+# 2025-08-01
+
+Today the job is edge straightening. The video I watched totally breezes through the iterative approach with no details, which is frustrating, but in the comments he clarifies that you just "move up and down making local improvements until you can't any more". So that's something, sort of.
+
+One thing that comes to mind for me is that I want the graph to be "left-aligned" to a large extent. I want straight lines when I can get them, but in cases where I can't, I want the nodes to be as far left as possible. This maybe just means that I can do this layout quite naively (but also iteratively).
+
+One of the constraints he talks about in the video is keeping vertices on a layer evenly spaced. I just do not care about this at all.
+
+I think I might just be able to lay out nodes according to their first edge. That is, if a node has multiple outgoing edges, we only care about the first one from a layout point of view.
+
+Also, perhaps the layout algorithm needs to handle the dummy vertices in some way. Like, if multiple dummy vertices are going down to the same node, the layout algorithm can stack them on top of each other. But we only want to do this if they are adjacent, I suppose.
