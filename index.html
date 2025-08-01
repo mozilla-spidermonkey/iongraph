@@ -111,8 +111,8 @@
           el.style.height = `${block.contentSize.y}px`;
         }
 
-        const nodesByLayer = this.layout();
-        this.render(nodesByLayer);
+        const [nodesByLayer, layerHeights] = this.layout();
+        this.render(nodesByLayer, layerHeights);
       }
 
       predecessorBlocks(block) {
@@ -140,7 +140,7 @@
         this.findLoops(firstBlock);
         this.layer(firstBlock);
         const layoutNodesByLayer = this.makeLayoutNodes();
-        this.verticalize(layoutNodesByLayer);
+        const layerHeights = this.verticalize(layoutNodesByLayer);
         this.straightenEdges(layoutNodesByLayer);
 
         // Temporary: apply layout node positions to blocks
@@ -161,7 +161,7 @@
         }
         console.log(layoutNodesByLayer);
 
-        return layoutNodesByLayer;
+        return [layoutNodesByLayer, layerHeights];
       }
 
       // Walks through the graph tracking which loop each block belongs to. As
@@ -267,6 +267,7 @@
             const [from, to] = edge;
             layoutNodesByLayer[layer].push({
               pos: { x: 0, y: 0 },
+              size: { x: 0, y: 0 },
               predecessors: [from],
               successors: [to],
               block: null,
@@ -277,6 +278,7 @@
           for (const block of blocks) {
             layoutNodesByLayer[layer].push({
               pos: { x: 0, y: 0 },
+              size: block.contentSize,
               predecessors: block.predecessors,
               successors: block.successors,
               block: block.number,
@@ -294,6 +296,8 @@
       }
 
       verticalize(layoutNodesByLayer) {
+        const layerHeights = new Array(layoutNodesByLayer.length);
+
         let nextLayerY = 0;
         for (let i = 0; i < layoutNodesByLayer.length; i++) {
           const nodes = layoutNodesByLayer[i];
@@ -306,15 +310,14 @@
             layerHeight = Math.max(layerHeight, nodeHeight);
           }
 
+          layerHeights[i] = layerHeight;
           nextLayerY += layerHeight + LAYER_GAP;
         }
+
+        return layerHeights;
       }
 
       straightenEdges(layoutNodesByLayer) {
-        const width = node => {
-          return node.block ? this.byNum[node.block].contentSize.x : 0;
-        }
-
         // Walk down and up through the layers a few times
         for (let iteration = 0; iteration < 1; iteration++) { // "it's not a loop, it's an iteration" -ljharb
           for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
@@ -334,7 +337,7 @@
                 continue;
               }
 
-              const nodeRightPlusPadding = node.pos.x + width(node) + BLOCK_GAP;
+              const nodeRightPlusPadding = node.pos.x + node.size.x + BLOCK_GAP;
               neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
             }
 
@@ -366,7 +369,7 @@
         }
       }
 
-      render(nodesByLayer) {
+      render(nodesByLayer, layerHeights) {
         // Position blocks according to layout
         for (const nodes of nodesByLayer) {
           for (const node of nodes) {
@@ -425,10 +428,11 @@
                 continue; // TODO: Draw backedge arrow
               } else {
                 const x1 = node.pos.x + (node.block !== null ? PORT_START + PORT_SPACING * i : 0);
-                const y1 = node.pos.y + (node.block !== null ? this.byNum[node.block].contentSize.y : 0);
+                const y1 = node.pos.y + node.size.y;
                 const x2 = destNode.pos.x + (destNode.block !== null ? PORT_START : 0);
                 const y2 = destNode.pos.y;
-                const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
+                const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+                // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
                 const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS, destNode.block !== null);
                 // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
                 svg.appendChild(arrow);
