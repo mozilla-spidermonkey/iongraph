@@ -381,7 +381,7 @@
               const loopHeader = block.loopID !== null ? this.byNum[block.loopID] : null;
               if (loopHeader) {
                 const loopHeaderNode = loopHeader.layoutNode;
-                node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.blockOffset.x + loopHeaderNode.indent);
+                node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.blockOffset.x + loopHeaderNode.indent - node.blockOffset.x);
               }
             }
 
