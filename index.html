@@ -366,64 +366,87 @@
       }
 
       straightenEdges(layoutNodesByLayer) {
-        // Walk down and up through the layers a few times
-        for (let iteration = 0; iteration < 1; iteration++) { // "it's not a loop, it's an iteration" -ljharb
-          for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
-            const nodes = layoutNodesByLayer[layer];
+        // Walk down the layers, straightening things out
+        for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
+          const nodes = layoutNodesByLayer[layer];
 
-            // Push nodes to the right so they fit inside their loop
-            for (const node of nodes) {
-              if (node.block === null) {
-                continue;
-              }
-
-              const block = this.byNum[node.block];
-              const loopHeader = block.loopID !== null ? this.byNum[block.loopID] : null;
-              if (loopHeader) {
-                const loopHeaderNode = loopHeader.layoutNode;
-                node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.blockOffset.x + loopHeaderNode.indent - node.blockOffset.x);
-              }
+          // Push nodes to the right so they fit inside their loop
+          for (const node of nodes) {
+            if (node.block === null) {
+              continue;
             }
 
-            // Push nodes to the right if they are too close together
-            for (let i = 0; i < nodes.length - 1; i++) {
-              const node = nodes[i];
-              const neighbor = nodes[i + 1];
+            const block = this.byNum[node.block];
+            const loopHeader = block.loopID !== null ? this.byNum[block.loopID] : null;
+            if (loopHeader) {
+              const loopHeaderNode = loopHeader.layoutNode;
+              node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.blockOffset.x + loopHeaderNode.indent - node.blockOffset.x);
+            }
+          }
 
-              // Special case: dummy nodes with the same destination should coalesce
-              if (
-                node.block === null && neighbor.block === null
-                && node.successors[0] === neighbor.successors[0] // yes, we always want actual successors
-              ) {
-                neighbor.pos.x = node.pos.x;
-                continue;
-              }
+          // Push nodes to the right if they are too close together
+          for (let i = 0; i < nodes.length - 1; i++) {
+            const node = nodes[i];
+            const neighbor = nodes[i + 1];
 
-              const nodeRightPlusPadding = node.pos.x + node.size.x + BLOCK_GAP;
-              neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
+            // Special case: dummy nodes with the same destination should coalesce
+            if (
+              node.block === null && neighbor.block === null
+              && node.successors[0] === neighbor.successors[0] // yes, we always want actual successors
+            ) {
+              neighbor.pos.x = node.pos.x;
+              continue;
             }
 
-            // Walk this layer and the next, shifting nodes to the right to line
-            // up the edges.
-            let nextCursor = 0;
-            for (const node of nodes) {
-              for (const [srcPort, succNum] of node.successors.entries()) {
-                let toShift = null;
-                for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
-                  const nextNode = layoutNodesByLayer[layer + 1][i];
-                  if (
-                    (nextNode.block === null && nextNode.successors[0] === succNum && nextNode.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block))
-                    || (nextNode.block !== null && this.byNum[nextNode.block].number === succNum)
-                  ) {
-                    toShift = nextNode;
-                    nextCursor = i + 1;
-                  }
+            const nodeRightPlusPadding = node.pos.x + node.size.x + BLOCK_GAP;
+            neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
+          }
+
+          // Walk this layer and the next, shifting nodes to the right to line
+          // up the edges.
+          let nextCursor = 0;
+          for (const node of nodes) {
+            for (const [srcPort, succNum] of node.successors.entries()) {
+              let toShift = null;
+              for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
+                const nextNode = layoutNodesByLayer[layer + 1][i];
+                if (
+                  (nextNode.block === null && nextNode.successors[0] === succNum && nextNode.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block))
+                  || (nextNode.block !== null && this.byNum[nextNode.block].number === succNum)
+                ) {
+                  toShift = nextNode;
+                  nextCursor = i + 1;
                 }
+              }
 
-                if (toShift) {
-                  const srcPortOffset = node.blockOffset.x + (node.block === null ? 0 : PORT_START + PORT_SPACING * srcPort);
-                  const dstPortOffset = toShift.blockOffset.x + (toShift.block === null ? 0 : PORT_START);
-                  toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+              if (toShift) {
+                const srcPortOffset = node.blockOffset.x + (node.block === null ? 0 : PORT_START + PORT_SPACING * srcPort);
+                const dstPortOffset = toShift.blockOffset.x + (toShift.block === null ? 0 : PORT_START);
+                toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+              }
+            }
+          }
+        }
+
+        // Walk back up the layers, doing a very limited shift-right
+        for (let layer = layoutNodesByLayer.length - 1; layer >= 0; layer--) {
+          const nodes = layoutNodesByLayer[layer];
+
+          for (const node of nodes) {
+            const predecessorsMinusBackedges = node.predecessors.filter(p => !this.byNum[p].attributes.includes("backedge"));
+            if (predecessorsMinusBackedges.length !== 1) {
+              continue;
+            }
+
+            const predNum = predecessorsMinusBackedges[0];
+            for (let i = 0; i < layoutNodesByLayer[layer - 1].length; i++) {
+              const prevNode = layoutNodesByLayer[layer - 1][i];
+              if (prevNode.block && this.byNum[prevNode.block].number === predNum) {
+                const prevBlock = this.byNum[prevNode.block];
+                if (prevBlock.successors.length === 1) {
+                  const srcPortOffset = prevNode.blockOffset.x + (prevNode.block === null ? 0 : PORT_START);
+                  const dstPortOffset = node.blockOffset.x + (node.block === null ? 0 : PORT_START);
+                  prevNode.pos.x = Math.max(prevNode.pos.x, node.pos.x + dstPortOffset - srcPortOffset);
                 }
               }
             }
