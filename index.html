@@ -49,8 +49,9 @@
     const DUMMY_WIDTH = 12;
     const LAYER_GAP = 36;
     const BLOCK_GAP = 24;
-    const LOOP_INDENT = 36;
-    const BACKEDGE_DEDENT = LOOP_INDENT;
+    // const LOOP_INDENT = 36;
+    const LOOP_INDENT = 0; // This is not really useful because edge straightening will make everything look like the child of a loop.
+    const BACKEDGE_DEDENT = 36;
     const BACKEDGE_PUSHDOWN = 48;
     const HEADER_ARROW_PUSHDOWN = 16;
 
@@ -285,6 +286,7 @@
               pos: { x: 0, y: 0 },
               size: { x: 0, y: 0 },
               blockOffset: { x: 0, y: 0 },
+              indent: 0,
               predecessors: [from],
               successors: [to],
               block: null,
@@ -299,6 +301,7 @@
               pos: { x: 0, y: 0 },
               size: block.contentSize,
               blockOffset: { x: 0, y: 0 },
+              indent: 0,
               predecessors: block.predecessors,
               successors: block.successors,
               block: block.number,
@@ -309,6 +312,7 @@
                 y: Math.max(node.size.y, BACKEDGE_PUSHDOWN + block.backedge.contentSize.y),
               };
               node.blockOffset.x = block.backedge.contentSize.x + BACKEDGE_DEDENT;
+              node.indent = LOOP_INDENT;
             }
 
             layoutNodes.push(node);
@@ -366,6 +370,20 @@
         for (let iteration = 0; iteration < 1; iteration++) { // "it's not a loop, it's an iteration" -ljharb
           for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
             const nodes = layoutNodesByLayer[layer];
+
+            // Push nodes to the right so they fit inside their loop
+            for (const node of nodes) {
+              if (node.block === null) {
+                continue;
+              }
+
+              const block = this.byNum[node.block];
+              const loopHeader = block.loopID !== null ? this.byNum[block.loopID] : null;
+              if (loopHeader) {
+                const loopHeaderNode = loopHeader.layoutNode;
+                node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.blockOffset.x + loopHeaderNode.indent);
+              }
+            }
 
             // Push nodes to the right if they are too close together
             for (let i = 0; i < nodes.length - 1; i++) {
