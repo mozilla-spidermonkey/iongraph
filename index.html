@@ -51,6 +51,8 @@
     const BLOCK_GAP = 24;
     const LOOP_INDENT = 36;
     const BACKEDGE_DEDENT = LOOP_INDENT;
+    const BACKEDGE_PUSHDOWN = 48;
+    const HEADER_ARROW_PUSHDOWN = 16;
 
     const PORT_START = 16;
     const PORT_SPACING = 40;
@@ -66,12 +68,12 @@
 
         for (const block of blocks) {
           this.byNum[block.number] = block;
-          if (block.successors.length === 2) {
-            // // HACK: Swap the true and false branches of tests
-            // const tmp = block.successors[0];
-            // block.successors[0] = block.successors[1];
-            // block.successors[1] = tmp;
-          }
+          // if (block.successors.length === 2) {
+          //   // HACK: Swap the true and false branches of tests
+          //   const tmp = block.successors[0];
+          //   block.successors[0] = block.successors[1];
+          //   block.successors[1] = tmp;
+          // }
 
           const el = document.createElement("div");
           el.classList.add("block");
@@ -111,6 +113,17 @@
           el.style.height = `${block.contentSize.y}px`;
         }
 
+        // After putting all blocks in our map, assign backedges to loops.
+        for (const block of blocks) {
+          if (block.attributes.includes("loopheader")) {
+            const backedges = block.predecessors
+              .map(p => this.byNum[p])
+              .filter(b => b.attributes.includes("backedge"));
+            assert(backedges.length === 1);
+            block.backedge = backedges[0];
+          }
+        }
+
         const [nodesByLayer, layerHeights] = this.layout();
         this.render(nodesByLayer, layerHeights);
       }
@@ -139,7 +152,7 @@
 
         this.findLoops(firstBlock);
         this.layer(firstBlock);
-        const layoutNodesByLayer = this.makeLayoutNodes();
+        const [layoutNodes, layoutNodesByLayer] = this.makeLayoutNodes();
         const layerHeights = this.verticalize(layoutNodesByLayer);
         this.straightenEdges(layoutNodesByLayer);
 
@@ -229,11 +242,13 @@
       }
 
       makeLayoutNodes() {
+        const unlayeredBlocks = [];
         let blocksByLayer;
         {
           const blocksByLayerObj = {};
           for (const block of this.blocks) {
             if (block.attributes.includes("backedge")) {
+              unlayeredBlocks.push(block);
               continue;
             }
 
@@ -248,6 +263,7 @@
             .map(([_, blocks]) => blocks);
         }
 
+        const layoutNodes = [];
         const layoutNodesByLayer = blocksByLayer.map(() => []);
         const activeEdges = [];
         for (const [layer, blocks] of blocksByLayer.entries()) {
@@ -265,24 +281,40 @@
           // Create dummy nodes for active edges.
           for (const edge of activeEdges) {
             const [from, to] = edge;
-            layoutNodesByLayer[layer].push({
+            const node = {
               pos: { x: 0, y: 0 },
               size: { x: 0, y: 0 },
+              blockOffset: { x: 0, y: 0 },
               predecessors: [from],
               successors: [to],
               block: null,
-            });
+            };
+            layoutNodes.push(node);
+            layoutNodesByLayer[layer].push(node);
           }
 
           // Create real nodes for each block on the layer.
           for (const block of blocks) {
-            layoutNodesByLayer[layer].push({
+            const node = {
               pos: { x: 0, y: 0 },
               size: block.contentSize,
+              blockOffset: { x: 0, y: 0 },
               predecessors: block.predecessors,
               successors: block.successors,
               block: block.number,
-            });
+            };
+            if (block.attributes.includes("loopheader")) {
+              node.size = {
+                x: block.backedge.contentSize.x + BACKEDGE_DEDENT + node.size.x,
+                y: Math.max(node.size.y, BACKEDGE_PUSHDOWN + block.backedge.contentSize.y),
+              };
+              node.blockOffset.x = block.backedge.contentSize.x + BACKEDGE_DEDENT;
+            }
+
+            layoutNodes.push(node);
+            layoutNodesByLayer[layer].push(node);
+            block.layoutNode = node;
+
             for (const succ of this.successorBlocks(block)) {
               if (succ.attributes.includes("backedge")) {
                 continue;
@@ -290,9 +322,23 @@
               activeEdges.push([block.number, succ.number]);
             }
           }
+
+          // Create nodes for any blocks that weren't assigned to layers.
+          for (const block of unlayeredBlocks) {
+            const node = {
+              pos: { x: 0, y: 0 },
+              size: block.contentSize,
+              blockOffset: { x: 0, y: 0 },
+              predecessors: block.predecessors,
+              successors: block.successors,
+              block: block.number,
+            };
+            layoutNodes.push(node);
+            block.layoutNode = node;
+          }
         }
 
-        return layoutNodesByLayer;
+        return [layoutNodes, layoutNodesByLayer];
       }
 
       verticalize(layoutNodesByLayer) {
@@ -305,9 +351,7 @@
           let layerHeight = 0;
           for (const node of nodes) {
             node.pos.y = nextLayerY;
-
-            const nodeHeight = node.block === null ? 0 : this.byNum[node.block].contentSize.y;
-            layerHeight = Math.max(layerHeight, nodeHeight);
+            layerHeight = Math.max(layerHeight, node.size.y);
           }
 
           layerHeights[i] = layerHeight;
@@ -359,8 +403,8 @@
                 }
 
                 if (toShift) {
-                  const srcPortOffset = node.block === null ? 0 : PORT_START + PORT_SPACING * srcPort;
-                  const dstPortOffset = toShift.block === null ? 0 : PORT_START;
+                  const srcPortOffset = node.blockOffset.x + (node.block === null ? 0 : PORT_START + PORT_SPACING * srcPort);
+                  const dstPortOffset = toShift.blockOffset.x + (toShift.block === null ? 0 : PORT_START);
                   toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
                 }
               }
@@ -378,8 +422,20 @@
               block.pos = node.pos;
 
               const el = this.els[block.number];
-              el.style.left = `${node.pos.x}px`;
-              el.style.top = `${node.pos.y}px`;
+              el.style.left = `${node.pos.x + node.blockOffset.x}px`;
+              el.style.top = `${node.pos.y + node.blockOffset.y}px`;
+
+              if (block.attributes.includes("loopheader")) {
+                const backedgeNode = block.backedge.layoutNode;
+                backedgeNode.pos = {
+                  x: node.pos.x,
+                  y: node.pos.y + BACKEDGE_PUSHDOWN,
+                };
+
+                const backedgeEl = this.els[block.backedge.number];
+                backedgeEl.style.left = `${node.pos.x}px`;
+                backedgeEl.style.top = `${node.pos.y + BACKEDGE_PUSHDOWN}px`;
+              }
             }
           }
         }
@@ -416,27 +472,49 @@
           const nodes = nodesByLayer[layer];
           for (const node of nodes) {
             for (const [i, succ] of node.successors.entries()) {
+              const x1 = node.pos.x + node.blockOffset.x + (node.block !== null ? PORT_START + PORT_SPACING * i : 0);
+              const y1 = node.pos.y + node.blockOffset.y + (node.block !== null ? this.byNum[node.block].contentSize.y : 0);
+
+              if (this.byNum[succ].attributes.includes("backedge")) {
+                // Draw backedge arrow
+                const backedge = this.byNum[succ];
+                const backedgeNode = backedge.layoutNode;
+                {
+                  const x2 = backedgeNode.pos.x + backedgeNode.blockOffset.x + PORT_START;
+                  const y2 = backedgeNode.pos.y + backedgeNode.blockOffset.y + backedgeNode.size.y;
+                  const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+                  const arrow = backedgeArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
+                  svg.appendChild(arrow);
+                }
+
+                // Draw loop header arrow
+                const header = this.byNum[backedge.successors[0]];
+                const headerNode = header.layoutNode;
+                {
+                  const x1 = backedgeNode.pos.x + backedgeNode.blockOffset.x + PORT_START;
+                  const y1 = backedgeNode.pos.y + backedgeNode.blockOffset.y;
+                  const x2 = headerNode.pos.x + headerNode.blockOffset.x;
+                  const y2 = headerNode.pos.y + headerNode.blockOffset.y + HEADER_ARROW_PUSHDOWN;
+                  const arrow = loopHeaderArrow(x1, y1, x2, y2, ARROW_RADIUS);
+                  svg.appendChild(arrow);
+                }
+
+                continue;
+              }
+
               const destNode = nodesByLayer[layer + 1].find(n => (
                 (n.block !== null && this.byNum[n.block].number === succ)
                 || (n.block === null && n.successors[0] === succ && n.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block)) // TODO: find dummy nodes
               ));
-              if (!destNode) {
-                continue;
-              }
+              assert(destNode);
 
-              if (destNode.block !== null && this.byNum[destNode.block].attributes.includes("backedge")) {
-                continue; // TODO: Draw backedge arrow
-              } else {
-                const x1 = node.pos.x + (node.block !== null ? PORT_START + PORT_SPACING * i : 0);
-                const y1 = node.pos.y + node.size.y;
-                const x2 = destNode.pos.x + (destNode.block !== null ? PORT_START : 0);
-                const y2 = destNode.pos.y;
-                const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
-                // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
-                const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS, destNode.block !== null);
-                // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
-                svg.appendChild(arrow);
-              }
+              const x2 = destNode.pos.x + destNode.blockOffset.x + (destNode.block !== null ? PORT_START : 0);
+              const y2 = destNode.pos.y + destNode.blockOffset.y;
+              const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+              // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
+              const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS, destNode.block !== null);
+              // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
+              svg.appendChild(arrow);
             }
           }
         }
