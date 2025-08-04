@@ -85,7 +85,7 @@
           } else if (block.attributes.includes("backedge")) {
             desc = " (backedge)";
           }
-          desc += ` (LD=${block.loopDepth})`;
+          // desc += ` (LD=${block.loopDepth})`;
           html += `<h2>Block ${block.number}${desc}</h2>`;
           html += `<div class="instructions">`;
           for (const ins of block.instructions) {
@@ -441,7 +441,7 @@
             const predNum = predecessorsMinusBackedges[0];
             for (let i = 0; i < layoutNodesByLayer[layer - 1].length; i++) {
               const prevNode = layoutNodesByLayer[layer - 1][i];
-              if (prevNode.block && this.byNum[prevNode.block].number === predNum) {
+              if (prevNode.block !== null && this.byNum[prevNode.block].number === predNum) {
                 const prevBlock = this.byNum[prevNode.block];
                 if (prevBlock.successors.length === 1) {
                   const srcPortOffset = prevNode.blockOffset.x + (prevNode.block === null ? 0 : PORT_START);
@@ -500,8 +500,8 @@
         // Create and size the SVG
         let maxX = 0, maxY = 0;
         for (const block of this.blocks) {
-          maxX = Math.max(maxX, block.pos.x + block.contentSize.x);
-          maxY = Math.max(maxY, block.pos.y + block.contentSize.y);
+          maxX = Math.max(maxX, block.pos.x + block.contentSize.x + 36);
+          maxY = Math.max(maxY, block.pos.y + block.contentSize.y + 36);
         }
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("width", maxX);
@@ -702,8 +702,8 @@
     }
 
     (async function () {
-      const ion = await (await fetch("ion.json")).json();
-      new Graph(window.container, ion.functions[2].passes[0].mir.blocks);
+      const ion = await (await fetch("ion2.json")).json();
+      new Graph(window.container, ion.functions[0].passes[0].mir.blocks);
     })();
   </script>
 </body>
