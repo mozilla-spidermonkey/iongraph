@@ -366,6 +366,25 @@
       }
 
       straightenEdges(layoutNodesByLayer) {
+        function pushNeighbors(nodes) {
+          for (let i = 0; i < nodes.length - 1; i++) {
+            const node = nodes[i];
+            const neighbor = nodes[i + 1];
+
+            // Special case: dummy nodes with the same destination should coalesce
+            if (
+              node.block === null && neighbor.block === null
+              && node.successors[0] === neighbor.successors[0] // yes, we always want actual successors
+            ) {
+              neighbor.pos.x = node.pos.x;
+              continue;
+            }
+
+            const nodeRightPlusPadding = node.pos.x + node.size.x + BLOCK_GAP;
+            neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
+          }
+        }
+
         // Walk down the layers, straightening things out
         for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
           const nodes = layoutNodesByLayer[layer];
@@ -385,22 +404,7 @@
           }
 
           // Push nodes to the right if they are too close together
-          for (let i = 0; i < nodes.length - 1; i++) {
-            const node = nodes[i];
-            const neighbor = nodes[i + 1];
-
-            // Special case: dummy nodes with the same destination should coalesce
-            if (
-              node.block === null && neighbor.block === null
-              && node.successors[0] === neighbor.successors[0] // yes, we always want actual successors
-            ) {
-              neighbor.pos.x = node.pos.x;
-              continue;
-            }
-
-            const nodeRightPlusPadding = node.pos.x + node.size.x + BLOCK_GAP;
-            neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
-          }
+          pushNeighbors(nodes);
 
           // Walk this layer and the next, shifting nodes to the right to line
           // up the edges.
@@ -451,6 +455,9 @@
               }
             }
           }
+
+          // Push nodes to the right if they are too close together
+          pushNeighbors(nodes);
         }
       }
 
@@ -702,8 +709,8 @@
     }
 
     (async function () {
-      const ion = await (await fetch("ion2.json")).json();
-      new Graph(window.container, ion.functions[0].passes[0].mir.blocks);
+      const ion = await (await fetch("ion.json")).json();
+      new Graph(window.container, ion.functions[2].passes[0].mir.blocks);
     })();
   </script>
 </body>
