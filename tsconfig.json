@@ -4,17 +4,14 @@
     "module": "ESNext", // Keep ES modules
     "moduleResolution": "node",
     "jsx": "react-jsx", // Use React JSX transform (React 17+)
-    "outDir": "dist",
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
-    "allowJs": false, // Don't process JS input files
-    "declaration": false, // Don't emit .d.ts files
-    "sourceMap": true,
     "lib": [
       "DOM",
       "ES2020"
-    ]
+    ],
+    "noEmit": true
   },
   "include": [
     "src/**/*"

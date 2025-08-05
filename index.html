@@ -46,11 +46,13 @@
 <body>
   <div id="container" style="left: 20px; top: 20px"></div>
   <script type="module">
-    import { Graph } from "./dist/Graph.js";
+    import { render } from "./dist/index.js";
+
+    new EventSource('/esbuild').addEventListener('change', () => location.reload());
 
     (async function () {
       const ion = await (await fetch("ion.json")).json();
-      new Graph(window.container, ion.functions[2].passes[0].mir.blocks);
+      render(window.container, ion.functions[2]);
     })();
   </script>
 </body>

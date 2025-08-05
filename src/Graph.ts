@@ -1,3 +1,5 @@
+import type { MIRBlock as _MIRBlock } from "./iongraph";
+
 const LAYER_GAP = 36;
 const BLOCK_GAP = 24;
 // const LOOP_INDENT = 36;
@@ -15,14 +17,7 @@ interface Vec2 {
   y: number,
 }
 
-interface MIRBlock {
-  number: number,
-  loopDepth: number,
-  attributes: string[], // TODO: Specific
-  predecessors: number[],
-  successors: number[],
-  instructions: MIRInstruction[],
-
+type MIRBlock = _MIRBlock & {
   // Properties added at runtime for this graph
   contentSize: Vec2,
   pos: Vec2,
@@ -70,16 +65,6 @@ interface LayoutNode {
   block: number | null,
 }
 
-interface MIRInstruction {
-  id: number,
-  opcode: string,
-  attributes: string[], // TODO: Specific
-  inputs: number[],
-  uses: number[],
-  memInputs: unknown[], // TODO
-  type: string,
-}
-
 export class Graph {
   container: HTMLElement;
   blocks: MIRBlock[];
@@ -87,7 +72,9 @@ export class Graph {
   els: { [blockID: number]: HTMLElement };
   loops: never[];
 
-  constructor(container: HTMLElement, blocks: MIRBlock[]) {
+  constructor(container: HTMLElement, _blocks: _MIRBlock[]) {
+    const blocks = _blocks as MIRBlock[];
+
     this.container = container;
     this.blocks = blocks;
     this.byNum = {};
@@ -194,15 +181,6 @@ export class Graph {
         }
       }
     }
-
-    // Temporary: log info about block layers
-    for (const block of this.blocks) {
-      console.log(`Block ${block.number}: loop ${block.loopID}, layer ${block.layer}`);
-      if (isTrueLH(block)) {
-        console.log(`  Loop header: parent ${block.parentLoop?.number}, loop height ${block.loopHeight}`);
-      }
-    }
-    console.log(layoutNodesByLayer);
 
     return [layoutNodesByLayer, layerHeights];
   }
