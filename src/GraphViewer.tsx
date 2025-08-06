@@ -1,34 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Graph } from "./Graph";
-import { Func } from "./iongraph";
 
-export function GraphViewer({ func }: {
-  func: Func,
+import type { MIRBlock } from "./iongraph";
+
+export function GraphViewer({ blocks }: {
+  blocks: MIRBlock[],
 }) {
-  const [pass, setPass] = useState(0);
   const container = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (container.current) {
       container.current.innerHTML = "";
-      new Graph(container.current, func.passes[pass].mir.blocks);
+      try {
+        new Graph(container.current, blocks);
+      } catch (e) {
+        container.current.innerHTML = "An error occurred while laying out the graph. See console.";
+        console.error(e);
+      }
     }
   });
 
-  return <div>
-    <div>
-      Function {func.name}, pass:
-      <input
-        type="number"
-        value={pass}
-        onChange={e => {
-          const newPass = parseInt(e.target.value, 10);
-          if (0 <= newPass && newPass < func.passes.length) {
-            setPass(newPass);
-          }
-        }}
-      />
-    </div>
-    <div ref={container} style={{ position: "relative" }} />
-  </div>;
+  return <div ref={container} style={{ position: "relative" }} />;
 }

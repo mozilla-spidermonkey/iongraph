@@ -2,7 +2,8 @@
   "scripts": {
     "check": "tsc",
     "watch": "tsc --watch",
-    "lint": "eslint ."
+    "build": "node build.mjs",
+    "serve": "node build.mjs --serve"
   },
   "devDependencies": {
     "@types/react": "^19.1.9",

@@ -46,13 +46,12 @@
 <body>
   <div id="container" style="left: 20px; top: 20px"></div>
   <script type="module">
-    import { render } from "./dist/index.js";
+    import { render } from "./dist/test.js";
 
     new EventSource('/esbuild').addEventListener('change', () => location.reload());
 
     (async function () {
-      const ion = await (await fetch("ion.json")).json();
-      render(window.container, ion.functions[2]);
+      render(window.container);
     })();
   </script>
 </body>

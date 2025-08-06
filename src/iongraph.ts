@@ -1,3 +1,7 @@
+export interface IonJSON {
+  functions: Func[],
+}
+
 export interface Func {
   name: string,
   passes: Pass[],
