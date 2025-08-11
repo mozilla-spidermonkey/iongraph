@@ -1,14 +1,16 @@
 import { createRoot } from 'react-dom/client';
 import { GraphViewer } from './GraphViewer';
-import { ChangeEvent, useState } from 'react';
+import { ChangeEvent, useEffect, useState } from 'react';
 
 import type { IonJSON, MIRBlock } from './iongraph';
 
 function TestViewer() {
   const [ionjson, setIonJSON] = useState<IonJSON>({ functions: [] });
 
-  const [func, setFunc] = useState(0);
-  const [pass, setPass] = useState(0);
+  const searchParams = new URL(window.location.toString()).searchParams;
+
+  const [func, setFunc] = useState(searchParams.has("func") ? parseInt(searchParams.get("func")!, 10) : 0);
+  const [pass, setPass] = useState(searchParams.has("pass") ? parseInt(searchParams.get("pass")!, 10) : 0);
 
   async function fileSelected(e: ChangeEvent<HTMLInputElement>) {
     const input = e.target;
@@ -20,8 +22,8 @@ function TestViewer() {
     const file = input.files[0];
     const newJSON = JSON.parse(await file.text());
     setIonJSON(newJSON);
-    setFunc(0);
-    setPass(0);
+    // setFunc(0);
+    // setPass(0);
   }
 
   let blocks: MIRBlock[] = [];

@@ -4,8 +4,8 @@ const LAYER_GAP = 36;
 const BLOCK_GAP = 24;
 // const LOOP_INDENT = 36;
 const LOOP_INDENT = 0; // This is not really useful because edge straightening will make everything look like the child of a loop.
-const BACKEDGE_DEDENT = 36;
-const BACKEDGE_PUSHDOWN = 48;
+const BACKEDGE_GAP = 48;
+const BACKEDGE_PUSHDOWN = 0; // TODO: DELETE
 const HEADER_ARROW_PUSHDOWN = 16;
 
 const PORT_START = 16;
@@ -58,7 +58,6 @@ function asLH(block: MIRBlock): LoopHeader {
 interface LayoutNode {
   pos: Vec2,
   size: Vec2,
-  blockOffset: Vec2,
   indent: number,
   predecessors: number[],
   successors: number[],
@@ -112,7 +111,7 @@ export class Graph {
       this.els[block.number] = el;
 
       block.contentSize = {
-        x: el.clientWidth,
+        x: el.clientWidth + 10, // fudge factor because text sucks
         y: el.clientHeight,
       };
       block.pos = { x: 0, y: 0 }; // Not used for layout
@@ -126,8 +125,7 @@ export class Graph {
         lh.outgoingEdges = [];
       }
 
-      // Lock the element to its initially rendered size plus fudge factor because text sucks
-      el.style.width = `${block.contentSize.x + 10}px`;
+      el.style.width = `${block.contentSize.x}px`;
       el.style.height = `${block.contentSize.y}px`;
     }
 
@@ -250,6 +248,9 @@ export class Graph {
   }
 
   makeLayoutNodes(): [LayoutNode[], LayoutNode[][]] {
+    // TODO: If we continue to render backedge blocks to the right of their loop headers,
+    // we can just put them in the layer properly again and adjust their spacing as necessary
+    // in the shift-right part of the algorithm.
     const unlayeredBlocks = [];
     let blocksByLayer;
     {
@@ -292,7 +293,6 @@ export class Graph {
         const node: LayoutNode = {
           pos: { x: 0, y: 0 },
           size: { x: 0, y: 0 },
-          blockOffset: { x: 0, y: 0 },
           indent: 0,
           predecessors: [from],
           successors: [to],
@@ -307,7 +307,6 @@ export class Graph {
         const node: LayoutNode = {
           pos: { x: 0, y: 0 },
           size: block.contentSize,
-          blockOffset: { x: 0, y: 0 },
           indent: 0,
           predecessors: block.predecessors,
           successors: block.successors,
@@ -315,10 +314,9 @@ export class Graph {
         };
         if (isTrueLH(block)) {
           node.size = {
-            x: block.backedge.contentSize.x + BACKEDGE_DEDENT + node.size.x,
+            x: node.size.x + BACKEDGE_GAP + block.backedge.contentSize.x,
             y: Math.max(node.size.y, BACKEDGE_PUSHDOWN + block.backedge.contentSize.y),
           };
-          node.blockOffset.x = block.backedge.contentSize.x + BACKEDGE_DEDENT;
           node.indent = LOOP_INDENT;
         }
 
@@ -407,7 +405,7 @@ export class Graph {
         const loopHeader = block.loopID !== null ? asLH(this.byNum[block.loopID]) : null;
         if (loopHeader) {
           const loopHeaderNode = loopHeader.layoutNode;
-          node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.blockOffset.x + loopHeaderNode.indent - node.blockOffset.x);
+          node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.indent);
         }
       }
 
@@ -432,8 +430,8 @@ export class Graph {
           }
 
           if (toShift) {
-            const srcPortOffset = node.blockOffset.x + PORT_START + PORT_SPACING * srcPort;
-            const dstPortOffset = toShift.blockOffset.x + PORT_START;
+            const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
+            const dstPortOffset = PORT_START;
             toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
           }
         }
@@ -456,8 +454,8 @@ export class Graph {
           if (prevNode.block !== null && this.byNum[prevNode.block].number === predNum) {
             const prevBlock = this.byNum[prevNode.block];
             if (prevBlock.successors.length === 1) {
-              const srcPortOffset = prevNode.blockOffset.x + (prevNode.block === null ? 0 : PORT_START);
-              const dstPortOffset = node.blockOffset.x + (node.block === null ? 0 : PORT_START);
+              const srcPortOffset = PORT_START;
+              const dstPortOffset = PORT_START;
               prevNode.pos.x = Math.max(prevNode.pos.x, node.pos.x + dstPortOffset - srcPortOffset);
             }
           }
@@ -478,26 +476,26 @@ export class Graph {
           block.pos = node.pos;
 
           const el = this.els[block.number];
-          el.style.left = `${node.pos.x + node.blockOffset.x}px`;
-          el.style.top = `${node.pos.y + node.blockOffset.y}px`;
+          el.style.left = `${node.pos.x}px`;
+          el.style.top = `${node.pos.y}px`;
 
           if (isTrueLH(block)) {
             const backedgeNode = block.backedge.layoutNode;
             backedgeNode.pos = {
-              x: node.pos.x,
+              x: node.pos.x + block.contentSize.x + BACKEDGE_GAP,
               y: node.pos.y + BACKEDGE_PUSHDOWN,
             };
 
             const backedgeEl = this.els[block.backedge.number];
-            backedgeEl.style.left = `${node.pos.x}px`;
-            backedgeEl.style.top = `${node.pos.y + BACKEDGE_PUSHDOWN}px`;
+            backedgeEl.style.left = `${backedgeNode.pos.x}px`;
+            backedgeEl.style.top = `${backedgeNode.pos.y}px`;
           }
         }
       }
     }
 
     // Optional: render dummy nodes
-    if (true) {
+    if (false) {
       for (const nodes of nodesByLayer) {
         for (const node of nodes) {
           if (node.block === null) {
@@ -515,8 +513,8 @@ export class Graph {
     // Create and size the SVG
     let maxX = 0, maxY = 0;
     for (const block of this.blocks) {
-      maxX = Math.max(maxX, block.pos.x + block.contentSize.x + 36);
-      maxY = Math.max(maxY, block.pos.y + block.contentSize.y + 36);
+      maxX = Math.max(maxX, block.pos.x + block.contentSize.x + 100);
+      maxY = Math.max(maxY, block.pos.y + block.contentSize.y + 100);
     }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", `${maxX}`);
@@ -528,18 +526,18 @@ export class Graph {
       const nodes = nodesByLayer[layer];
       for (const node of nodes) {
         for (const [i, succ] of node.successors.entries()) {
-          const x1 = node.pos.x + node.blockOffset.x + PORT_START + PORT_SPACING * i;
-          const y1 = node.pos.y + node.blockOffset.y + (node.block !== null ? this.byNum[node.block].contentSize.y : 0);
+          const x1 = node.pos.x + PORT_START + PORT_SPACING * i;
+          const y1 = node.pos.y + (node.block !== null ? this.byNum[node.block].contentSize.y : 0);
 
           if (this.byNum[succ].attributes.includes("backedge")) {
             // Draw backedge arrow
             const backedge = this.byNum[succ];
             const backedgeNode = backedge.layoutNode;
             {
-              const x2 = backedgeNode.pos.x + backedgeNode.blockOffset.x + PORT_START;
-              const y2 = backedgeNode.pos.y + backedgeNode.blockOffset.y + backedgeNode.size.y;
+              const x2 = backedgeNode.pos.x + backedge.contentSize.x;
+              const y2 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
               const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
-              const arrow = backedgeArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
+              const arrow = backedgeArrow(x1, y1, x2, y2, x2 + ARROW_RADIUS * 2, ym);
               svg.appendChild(arrow);
             }
 
@@ -547,11 +545,11 @@ export class Graph {
             const header = this.byNum[backedge.successors[0]];
             const headerNode = header.layoutNode;
             {
-              const x1 = backedgeNode.pos.x + backedgeNode.blockOffset.x + PORT_START;
-              const y1 = backedgeNode.pos.y + backedgeNode.blockOffset.y;
-              const x2 = headerNode.pos.x + headerNode.blockOffset.x;
-              const y2 = headerNode.pos.y + headerNode.blockOffset.y + HEADER_ARROW_PUSHDOWN;
-              const arrow = loopHeaderArrow(x1, y1, x2, y2, ARROW_RADIUS);
+              const x1 = backedgeNode.pos.x + PORT_START;
+              const y1 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
+              const x2 = headerNode.pos.x + header.contentSize.x;
+              const y2 = headerNode.pos.y + HEADER_ARROW_PUSHDOWN;
+              const arrow = loopHeaderArrow(x1, y1, x2, y2);
               svg.appendChild(arrow);
             }
 
@@ -564,8 +562,8 @@ export class Graph {
           ));
           assert(destNode);
 
-          const x2 = destNode.pos.x + destNode.blockOffset.x + PORT_START;
-          const y2 = destNode.pos.y + destNode.blockOffset.y;
+          const x2 = destNode.pos.x + PORT_START;
+          const y2 = destNode.pos.y;
           const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
           // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
           const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS, destNode.block !== null);
@@ -599,7 +597,7 @@ export class Graph {
               const x2 = succ.pos.x + PORT_START;
               const y2 = succ.pos.y + succ.contentSize.y;
               const ym = y1 + LAYER_GAP / 2;
-              const arrow = backedgeArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
+              const arrow = backedgeArrow(x1, y1, x2, y2, -1, ym);
               arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
               svg.appendChild(arrow);
             } else {
@@ -607,7 +605,7 @@ export class Graph {
               const y2 = succ.pos.y;
               const ym = y1 + LAYER_GAP / 2;
               // const ym = y2 - GAP_ABOVE_CHILDREN / 2;
-              const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS);
+              const arrow = downwardArrow(x1, y1, x2, y2, ym);
               arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
               svg.appendChild(arrow);
             }
@@ -622,7 +620,7 @@ function downwardArrow(
   x1: number, y1: number,
   x2: number, y2: number,
   ym: number,
-  r: number,
+  r = ARROW_RADIUS,
   doArrowhead = true,
   stroke = 1,
 ) {
@@ -663,48 +661,21 @@ function downwardArrow(
 function backedgeArrow(
   x1: number, y1: number,
   x2: number, y2: number,
-  ym: number,
-  r: number,
+  xm: number, ym: number,
+  r = ARROW_RADIUS,
   stroke = 1,
 ) {
-  assert(y1 + r <= ym && y2 + r <= ym, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`);
+  assert(y1 + r <= ym && y2 + r <= ym && x1 <= xm && x2 <= xm, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, xm = ${xm}, ym = ${ym}, r = ${r}`, true);
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
   path += `L ${x1} ${ym - r} `; // line down
-  path += `A ${r} ${r} 0 0 1 ${x1 - r} ${ym}`; // arc to joint
-  path += `L ${x2 + r} ${ym} `; // joint
-  path += `A ${r} ${r} 0 0 1 ${x2} ${ym - r}`; // arc to line
-  path += `L ${x2} ${y2}`; // line up
-
-  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-
-  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  p.setAttribute("d", path);
-  p.setAttribute("fill", "none");
-  p.setAttribute("stroke", "black");
-  p.setAttribute("stroke-width", `${stroke}`);
-  g.appendChild(p);
-
-  const v = arrowhead(x2, y2, 0);
-  g.appendChild(v);
-
-  return g;
-}
-
-function loopHeaderArrow(
-  x1: number, y1: number,
-  x2: number, y2: number,
-  r: number,
-  stroke = 1,
-) {
-  assert(x1 + r <= x2 && y1 - r >= y2, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, r = ${r}`);
-
-  let path = "";
-  path += `M ${x1} ${y1} `; // move to start
-  path += `L ${x1} ${y2 + r} `; // line up
-  path += `A ${r} ${r} 0 0 1 ${x1 + r} ${y2}`; // arc to line
-  path += `L ${x2} ${y2} `; // line right
+  path += `A ${r} ${r} 0 0 0 ${x1 + r} ${ym}`; // arc to horizontal joint
+  path += `L ${xm - r} ${ym} `; // horizontal joint
+  path += `A ${r} ${r} 0 0 0 ${xm} ${ym - r}`; // arc to vertical joint
+  path += `L ${xm} ${y2 + r}`; // vertical joint
+  path += `A ${r} ${r} 0 0 0 ${xm - r} ${y2}`; // arc to line
+  path += `L ${x2} ${y2}`; // line left
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
@@ -721,6 +692,32 @@ function loopHeaderArrow(
   return g;
 }
 
+function loopHeaderArrow(
+  x1: number, y1: number,
+  x2: number, y2: number,
+  stroke = 1,
+) {
+  assert(x2 < x1 && y2 === y1, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}`, true);
+
+  let path = "";
+  path += `M ${x1} ${y1} `; // move to start
+  path += `L ${x2} ${y2} `; // line left
+
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", path);
+  p.setAttribute("fill", "none");
+  p.setAttribute("stroke", "black");
+  p.setAttribute("stroke-width", `${stroke}`);
+  g.appendChild(p);
+
+  const v = arrowhead(x2, y2, 270);
+  g.appendChild(v);
+
+  return g;
+}
+
 function arrowhead(x: number, y: number, rot: number, size = 5) {
   const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
   p.setAttribute("d", `M 0 0 L ${-size} ${size * 1.5} L ${size} ${size * 1.5} Z`);
@@ -730,8 +727,12 @@ function arrowhead(x: number, y: number, rot: number, size = 5) {
 
 type Falsy = null | undefined | false | 0 | -0 | 0n | "";
 
-function assert<T>(cond: T | Falsy, msg?: string): asserts cond is T {
+function assert<T>(cond: T | Falsy, msg?: string, soft = false): asserts cond is T {
   if (!cond) {
-    throw new Error(msg ?? "Assertion failed");
+    if (soft) {
+      console.error(msg ?? "Assertion failed");
+    } else {
+      throw new Error(msg ?? "Assertion failed");
+    }
   }
 }
