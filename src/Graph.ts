@@ -432,8 +432,8 @@ export class Graph {
           }
 
           if (toShift) {
-            const srcPortOffset = node.blockOffset.x + (node.block === null ? 0 : PORT_START + PORT_SPACING * srcPort);
-            const dstPortOffset = toShift.blockOffset.x + (toShift.block === null ? 0 : PORT_START);
+            const srcPortOffset = node.blockOffset.x + PORT_START + PORT_SPACING * srcPort;
+            const dstPortOffset = toShift.blockOffset.x + PORT_START;
             toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
           }
         }
@@ -497,7 +497,7 @@ export class Graph {
     }
 
     // Optional: render dummy nodes
-    if (false) {
+    if (true) {
       for (const nodes of nodesByLayer) {
         for (const node of nodes) {
           if (node.block === null) {
@@ -528,7 +528,7 @@ export class Graph {
       const nodes = nodesByLayer[layer];
       for (const node of nodes) {
         for (const [i, succ] of node.successors.entries()) {
-          const x1 = node.pos.x + node.blockOffset.x + (node.block !== null ? PORT_START + PORT_SPACING * i : 0);
+          const x1 = node.pos.x + node.blockOffset.x + PORT_START + PORT_SPACING * i;
           const y1 = node.pos.y + node.blockOffset.y + (node.block !== null ? this.byNum[node.block].contentSize.y : 0);
 
           if (this.byNum[succ].attributes.includes("backedge")) {
@@ -564,7 +564,7 @@ export class Graph {
           ));
           assert(destNode);
 
-          const x2 = destNode.pos.x + destNode.blockOffset.x + (destNode.block !== null ? PORT_START : 0);
+          const x2 = destNode.pos.x + destNode.blockOffset.x + PORT_START;
           const y2 = destNode.pos.y + destNode.blockOffset.y;
           const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
           // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
