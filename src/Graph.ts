@@ -386,7 +386,8 @@ export class Graph {
           continue;
         }
 
-        const nodeRightPlusPadding = node.pos.x + node.size.x + BLOCK_GAP;
+        const firstNonDummy = node.block === null && neighbor.block !== null;
+        const nodeRightPlusPadding = node.pos.x + node.size.x + (firstNonDummy ? PORT_START : 0) + BLOCK_GAP;
         neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
       }
     }
@@ -686,7 +687,7 @@ function backedgeArrow(
   p.setAttribute("stroke-width", `${stroke}`);
   g.appendChild(p);
 
-  const v = arrowhead(x2, y2, 90);
+  const v = arrowhead(x2, y2, 270);
   g.appendChild(v);
 
   return g;

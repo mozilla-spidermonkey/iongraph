@@ -5,9 +5,19 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import type { IonJSON, MIRBlock } from './iongraph';
 
 function TestViewer() {
+  const searchParams = new URL(window.location.toString()).searchParams;
+
   const [ionjson, setIonJSON] = useState<IonJSON>({ functions: [] });
 
-  const searchParams = new URL(window.location.toString()).searchParams;
+  useEffect(() => {
+    const searchFile = searchParams.get("file");
+    if (searchFile) {
+      (async () => {
+        const res = await fetch(searchFile);
+        setIonJSON(await res.json());
+      })();
+    }
+  }, []);
 
   const [func, setFunc] = useState(searchParams.has("func") ? parseInt(searchParams.get("func")!, 10) : 0);
   const [pass, setPass] = useState(searchParams.has("pass") ? parseInt(searchParams.get("pass")!, 10) : 0);
@@ -22,8 +32,6 @@ function TestViewer() {
     const file = input.files[0];
     const newJSON = JSON.parse(await file.text());
     setIonJSON(newJSON);
-    // setFunc(0);
-    // setPass(0);
   }
 
   let blocks: MIRBlock[] = [];
@@ -34,33 +42,37 @@ function TestViewer() {
     blocks = passes[pass].mir.blocks;
   }
 
-  return <div>
-    <div><input type="file" onChange={fileSelected} /></div>
-    {funcValid && passValid && <>
-      <div>
-        Function <input
-          type="number"
-          value={func}
-          onChange={e => {
-            const newFunc = parseInt(e.target.value, 10);
-            if (0 <= newFunc && newFunc < ionjson.functions.length) {
-              setFunc(newFunc);
-            }
-          }}
-        />
-        pass: <input
-          type="number"
-          value={pass}
-          onChange={e => {
-            const newPass = parseInt(e.target.value, 10);
-            if (0 <= newPass && newPass < ionjson.functions[func].passes.length) {
-              setPass(newPass);
-            }
-          }}
-        />
-      </div>
-      <GraphViewer blocks={blocks} />
-    </>}
+  return <div className="ig-flex ig-flex-column ig-g3">
+    <div>
+      <div><input type="file" onChange={fileSelected} /></div>
+      {funcValid && passValid && <>
+        <div>
+          Function <input
+            type="number"
+            value={func}
+            onChange={e => {
+              const newFunc = parseInt(e.target.value, 10);
+              if (0 <= newFunc && newFunc < ionjson.functions.length) {
+                setFunc(newFunc);
+              }
+            }}
+          />
+          pass: <input
+            type="number"
+            value={pass}
+            onChange={e => {
+              const newPass = parseInt(e.target.value, 10);
+              if (0 <= newPass && newPass < ionjson.functions[func].passes.length) {
+                setPass(newPass);
+              }
+            }}
+          />
+        </div>
+      </>}
+    </div>
+    {funcValid && passValid && <div className="ig-ba">
+      <GraphViewer func={ionjson.functions[func]} pass={pass} />
+    </div>}
   </div>;
 }
 
