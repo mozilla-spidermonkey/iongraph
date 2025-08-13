@@ -17,6 +17,7 @@
 
   --ig-text-color: black;
   --ig-text-color-dim: #777;
+  --ig-background-primary: orange;
 }
 
 a.ig-link-normal {
@@ -237,4 +238,8 @@ a.ig-link-normal {
 
 .ig-tc {
   text-align: center;
+}
+
+.ig-bg-primary {
+  background-color: var(--ig-background-primary);
 }

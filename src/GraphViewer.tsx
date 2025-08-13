@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Graph } from "./Graph";
 
 import type { Func, MIRBlock, Pass } from "./iongraph";
+import { classes } from "./classes";
 
 export function GraphViewer({ func, pass: propsPass = 0 }: {
   func: Func,
@@ -38,10 +39,17 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
   return <div className="ig-flex ig-w-100">
     <div className="ig-w5 ig-br ig-flex-shrink-0">
       {func.passes.map((pass, i) => <div key={i}>
-        <a href="#" className="ig-link-normal ig-pv1 ig-ph2 ig-flex ig-g2" onClick={e => {
-          e.preventDefault();
-          setPassNumber(i);
-        }}>
+        <a
+          href="#"
+          className={classes(
+            "ig-link-normal ig-pv1 ig-ph2 ig-flex ig-g2",
+            { "ig-bg-primary": passNumber === i },
+          )}
+          onClick={e => {
+            e.preventDefault();
+            setPassNumber(i);
+          }}
+        >
           <div
             className="ig-w1 ig-tr ig-f6 ig-text-dim"
             style={{ paddingTop: "0.08rem" }}
