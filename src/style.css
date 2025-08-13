@@ -33,12 +33,35 @@ a.ig-link-normal {
   flex-direction: column;
 }
 
+.ig-flex-basis-0 {
+  flex-basis: 0;
+}
+
 .ig-flex-grow-1 {
   flex-grow: 1;
 }
 
 .ig-flex-shrink-0 {
   flex-shrink: 0;
+}
+
+.ig-flex-shrink-1 {
+  flex-shrink: 1;
+}
+
+.ig-relative {
+  position: relative;
+}
+
+.ig-absolute {
+  position: absolute;
+}
+
+.ig-absolute-fill {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .ig-g1 {
@@ -242,4 +265,20 @@ a.ig-link-normal {
 
 .ig-bg-primary {
   background-color: var(--ig-background-primary);
+}
+
+.ig-overflow-hidden {
+  overflow: hidden;
+}
+
+.ig-overflow-auto {
+  overflow: auto;
+}
+
+.ig-overflow-x-auto {
+  overflow-x: auto;
+}
+
+.ig-overflow-y-auto {
+  overflow-y: auto;
 }

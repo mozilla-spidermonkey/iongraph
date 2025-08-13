@@ -7,6 +7,10 @@
       box-sizing: border-box;
     }
 
+    body {
+      margin: 0;
+    }
+
     .block {
       position: absolute;
       border: 1px solid black;
@@ -45,14 +49,14 @@
 </head>
 
 <body>
-  <div id="container" style="left: 20px; top: 20px"></div>
+  <div id="reactRoot"></div>
   <script type="module">
     import { render } from "./dist/test.js";
 
     new EventSource('/esbuild').addEventListener('change', () => location.reload());
 
     (async function () {
-      render(window.container);
+      render(window.reactRoot);
     })();
   </script>
 </body>
