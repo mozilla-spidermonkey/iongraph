@@ -4,7 +4,7 @@ import { Graph } from "./Graph";
 import type { Func, MIRBlock, Pass } from "./iongraph";
 import { classes } from "./classes";
 
-const ZOOM_SENSITIVITY = 1.05;
+const ZOOM_SENSITIVITY = 1.10;
 const WHEEL_DELTA_SCALE = 0.01;
 const MAX_ZOOM = 1;
 const MIN_ZOOM = 0.25;
