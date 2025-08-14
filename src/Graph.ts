@@ -256,19 +256,10 @@ export class Graph {
   }
 
   makeLayoutNodes(): [LayoutNode[], LayoutNode[][]] {
-    // TODO: If we continue to render backedge blocks to the right of their loop headers,
-    // we can just put them in the layer properly again and adjust their spacing as necessary
-    // in the shift-right part of the algorithm.
-    const unlayeredBlocks = [];
-    let blocksByLayer;
+    let blocksByLayer: MIRBlock[][];
     {
       const blocksByLayerObj: { [layer: number]: MIRBlock[] } = {};
       for (const block of this.blocks) {
-        if (block.attributes.includes("backedge")) {
-          unlayeredBlocks.push(block);
-          continue;
-        }
-
         if (!blocksByLayerObj[block.layer]) {
           blocksByLayerObj[block.layer] = [];
         }
@@ -280,9 +271,11 @@ export class Graph {
         .map(([_, blocks]) => blocks);
     }
 
-    const layoutNodes = [];
+    type Edge = [number, number];
+
+    const layoutNodes: LayoutNode[] = [];
     const layoutNodesByLayer: LayoutNode[][] = blocksByLayer.map(() => []);
-    const activeEdges = [];
+    const activeEdges: Edge[] = [];
     for (const [layer, blocks] of blocksByLayer.entries()) {
       // Delete any active edges that terminate at this layer, since we do
       // not want to make any dummy nodes for them.
@@ -296,18 +289,26 @@ export class Graph {
       }
 
       // Create dummy nodes for active edges.
+      let lastDummy: LayoutNode | null = null;
       for (const edge of activeEdges) {
         const [from, to] = edge;
-        const node: LayoutNode = {
-          pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
-          size: { x: 0, y: 0 },
-          indent: 0,
-          predecessors: [from],
-          successors: [to],
-          block: null,
-        };
-        layoutNodes.push(node);
-        layoutNodesByLayer[layer].push(node);
+        if (to === lastDummy?.successors[0]) {
+          // Collapse multiple edges into a single dummy node.
+          lastDummy!.predecessors.push(from);
+        } else {
+          // Create a new dummy node.
+          const node: LayoutNode = {
+            pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
+            size: { x: 0, y: 0 },
+            indent: 0,
+            predecessors: [from],
+            successors: [to],
+            block: null,
+          };
+          layoutNodes.push(node);
+          layoutNodesByLayer[layer].push(node);
+          lastDummy = node;
+        }
       }
 
       // Create real nodes for each block on the layer.
@@ -321,10 +322,6 @@ export class Graph {
           block: block.number,
         };
         if (isTrueLH(block)) {
-          node.size = {
-            x: node.size.x + BACKEDGE_GAP + block.backedge.contentSize.x,
-            y: Math.max(node.size.y, BACKEDGE_PUSHDOWN + block.backedge.contentSize.y),
-          };
           node.indent = LOOP_INDENT;
         }
 
@@ -338,21 +335,6 @@ export class Graph {
           }
           activeEdges.push([block.number, succ.number]);
         }
-      }
-
-      // Create nodes for any blocks that weren't assigned to layers.
-      for (const block of unlayeredBlocks) {
-        const node = {
-          pos: { x: 0, y: 0 },
-          size: block.contentSize,
-          blockOffset: { x: 0, y: 0 },
-          indent: 0,
-          predecessors: block.predecessors,
-          successors: block.successors,
-          block: block.number,
-        };
-        layoutNodes.push(node);
-        block.layoutNode = node;
       }
     }
 
@@ -568,11 +550,19 @@ export class Graph {
             continue;
           }
 
-          const destNode = nodesByLayer[layer + 1].find(n => (
-            (n.block !== null && this.byNum[n.block].number === succ)
-            || (n.block === null && n.successors[0] === succ && n.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block)) // TODO: find dummy nodes
-          ));
-          assert(destNode);
+          let destNode: LayoutNode;
+          if (node.block && this.byNum[node.block].attributes.includes("backedge")) {
+            const headerNode = nodesByLayer[layer].find(n => n.block === this.byNum[node.block!].successors[0]);
+            assert(headerNode);
+            destNode = headerNode;
+          } else {
+            const successorNode = nodesByLayer[layer + 1].find(n => (
+              (n.block !== null && this.byNum[n.block].number === succ)
+              || (n.block === null && n.successors[0] === succ && n.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block)) // TODO: find dummy nodes
+            ));
+            assert(successorNode);
+            destNode = successorNode;
+          }
 
           const x2 = destNode.pos.x + PORT_START;
           const y2 = destNode.pos.y;
@@ -636,7 +626,7 @@ function downwardArrow(
   doArrowhead = true,
   stroke = 1,
 ) {
-  assert(y1 + r <= ym && ym < y2 - r, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`);
+  assert(y1 + r <= ym && ym < y2 - r, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
