@@ -12,6 +12,8 @@ const PORT_START = 16;
 const PORT_SPACING = 40;
 const ARROW_RADIUS = 10;
 
+const CONTENT_PADDING = 20;
+
 interface Vec2 {
   x: number,
   y: number,
@@ -71,6 +73,9 @@ export class Graph {
   els: { [blockID: number]: HTMLElement };
   loops: never[];
 
+  width: number;
+  height: number;
+
   constructor(container: HTMLElement, _blocks: _MIRBlock[]) {
     const blocks = _blocks as MIRBlock[];
 
@@ -80,6 +85,9 @@ export class Graph {
     this.els = {};
 
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
+
+    this.width = 0;
+    this.height = 0;
 
     for (const block of blocks) {
       this.byNum[block.number] = block;
@@ -291,7 +299,7 @@ export class Graph {
       for (const edge of activeEdges) {
         const [from, to] = edge;
         const node: LayoutNode = {
-          pos: { x: 0, y: 0 },
+          pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
           size: { x: 0, y: 0 },
           indent: 0,
           predecessors: [from],
@@ -305,7 +313,7 @@ export class Graph {
       // Create real nodes for each block on the layer.
       for (const block of blocks) {
         const node: LayoutNode = {
-          pos: { x: 0, y: 0 },
+          pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
           size: block.contentSize,
           indent: 0,
           predecessors: block.predecessors,
@@ -354,7 +362,7 @@ export class Graph {
   verticalize(layoutNodesByLayer: LayoutNode[][]): number[] {
     const layerHeights: number[] = new Array(layoutNodesByLayer.length);
 
-    let nextLayerY = 0;
+    let nextLayerY = CONTENT_PADDING;
     for (let i = 0; i < layoutNodesByLayer.length; i++) {
       const nodes = layoutNodesByLayer[i];
 
@@ -514,13 +522,16 @@ export class Graph {
     // Create and size the SVG
     let maxX = 0, maxY = 0;
     for (const block of this.blocks) {
-      maxX = Math.max(maxX, block.pos.x + block.contentSize.x + 100);
-      maxY = Math.max(maxY, block.pos.y + block.contentSize.y + 100);
+      maxX = Math.max(maxX, block.pos.x + block.contentSize.x + CONTENT_PADDING); // TODO: Fudge factor
+      maxY = Math.max(maxY, block.pos.y + block.contentSize.y + CONTENT_PADDING);
     }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", `${maxX}`);
-    svg.setAttribute("height", `${maxY + LAYER_GAP}`);
+    svg.setAttribute("height", `${maxY}`);
     this.container.appendChild(svg);
+
+    this.width = maxX;
+    this.height = maxY;
 
     // Render arrows
     for (let layer = 0; layer < nodesByLayer.length; layer++) {
