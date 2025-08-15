@@ -1,4 +1,5 @@
 import type { MIRBlock as _MIRBlock } from "./iongraph";
+import { assert } from "./utils";
 
 const LAYER_GAP = 36;
 const BLOCK_GAP = 24;
@@ -21,8 +22,10 @@ interface Vec2 {
 
 type MIRBlock = _MIRBlock & {
   // Properties added at runtime for this graph
-  contentSize: Vec2,
-  pos: Vec2,
+  preds: MIRBlock[],
+  succs: MIRBlock[],
+  el: HTMLElement,
+  size: Vec2,
   layer: number,
   loopID: number,
   layoutNode: LayoutNode, // this is set partway through the process but trying to type it as such is absolutely not worth it
@@ -57,21 +60,31 @@ function asLH(block: MIRBlock): LoopHeader {
   throw new Error("Block is not a pseudo LoopHeader");
 }
 
-interface LayoutNode {
+type LayoutNode = BlockNode | DummyNode;
+
+interface _LayoutNodeCommon {
+  id: number,
   pos: Vec2,
   size: Vec2,
   indent: number,
-  predecessors: number[],
-  successors: number[],
-  block: number | null,
+  srcNodes: LayoutNode[],
+  dstNodes: LayoutNode[],
 }
+
+type BlockNode = _LayoutNodeCommon & {
+  block: MIRBlock,
+};
+
+type DummyNode = _LayoutNodeCommon & {
+  block: null,
+  dstBlock: MIRBlock,
+};
 
 export class Graph {
   container: HTMLElement;
   blocks: MIRBlock[];
   byNum: { [id: number]: MIRBlock };
-  els: { [blockID: number]: HTMLElement };
-  loops: never[];
+  loops: LoopHeader[];
 
   width: number;
   height: number;
@@ -82,47 +95,23 @@ export class Graph {
     this.container = container;
     this.blocks = blocks;
     this.byNum = {};
-    this.els = {};
 
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
     this.width = 0;
     this.height = 0;
 
+    // Initialize blocks
     for (const block of blocks) {
       this.byNum[block.number] = block;
-      // if (block.successors.length === 2) {
-      //   // HACK: Swap the true and false branches of tests
-      //   const tmp = block.successors[0];
-      //   block.successors[0] = block.successors[1];
-      //   block.successors[1] = tmp;
-      // }
 
-      const el = document.createElement("div");
-      el.classList.add("block");
-      let html = "";
-      let desc = "";
-      if (block.attributes.includes("loopheader")) {
-        desc = " (loop header)";
-      } else if (block.attributes.includes("backedge")) {
-        desc = " (backedge)";
-      }
-      // desc += ` (LD=${block.loopDepth})`;
-      html += `<h2>Block ${block.number}${desc}</h2>`;
-      html += `<div class="instructions">`;
-      for (const ins of block.instructions) {
-        html += `<div>${ins.id} ${ins.opcode}</div>`;
-      }
-      html += "</div>";
-      el.innerHTML = html;
-      container.appendChild(el);
-      this.els[block.number] = el;
+      const el = this.renderBlock(block);
+      block.el = el;
 
-      block.contentSize = {
-        x: el.clientWidth + 10, // fudge factor because text sucks
+      block.size = {
+        x: el.clientWidth,
         y: el.clientHeight,
       };
-      block.pos = { x: 0, y: 0 }; // Not used for layout
 
       block.layer = -1;
       block.loopID = 0;
@@ -132,17 +121,15 @@ export class Graph {
         lh.parentLoop = null;
         lh.outgoingEdges = [];
       }
-
-      el.style.width = `${block.contentSize.x}px`;
-      el.style.height = `${block.contentSize.y}px`;
     }
 
-    // After putting all blocks in our map, assign backedges to loops.
+    // After putting all blocks in our map, fill out block-to-block references.
     for (const block of blocks) {
+      block.preds = block.predecessors.map(id => this.byNum[id]);
+      block.succs = block.successors.map(id => this.byNum[id]);
+
       if (isTrueLH(block)) {
-        const backedges = block.predecessors
-          .map(p => this.byNum[p])
-          .filter(b => b.attributes.includes("backedge"));
+        const backedges = block.preds.filter(b => b.attributes.includes("backedge"));
         assert(backedges.length === 1);
         block.backedge = backedges[0];
       }
@@ -152,15 +139,7 @@ export class Graph {
     this.render(nodesByLayer, layerHeights);
   }
 
-  predecessorBlocks(block: MIRBlock) {
-    return block.predecessors.map(id => this.byNum[id]);
-  }
-
-  successorBlocks(block: MIRBlock) {
-    return block.successors.map(id => this.byNum[id]);
-  }
-
-  layout(): [LayoutNode[][], number[]] {
+  private layout(): [LayoutNode[][], number[]] {
     // Make the first block a pseudo loop header.
     const firstBlock = this.blocks[0] as LoopHeader; // TODO: Determine first block(s) from graph instead of number
     firstBlock.loopHeight = 0;
@@ -175,18 +154,9 @@ export class Graph {
 
     this.findLoops(firstBlock);
     this.layer(firstBlock);
-    const [layoutNodes, layoutNodesByLayer] = this.makeLayoutNodes();
+    const layoutNodesByLayer = this.makeLayoutNodesByLayer();
     const layerHeights = this.verticalize(layoutNodesByLayer);
     this.straightenEdges(layoutNodesByLayer);
-
-    // Temporary: apply layout node positions to blocks
-    for (const nodes of layoutNodesByLayer) {
-      for (const node of nodes) {
-        if (node.block !== null) {
-          this.byNum[node.block].pos = node.pos;
-        }
-      }
-    }
 
     return [layoutNodesByLayer, layerHeights];
   }
@@ -196,7 +166,7 @@ export class Graph {
   // block has lesser loopDepth than its parent, that means it is outside
   // at least one loop, and the loop it belongs to can be looked up by loop
   // depth.
-  findLoops(block: MIRBlock, loopIDsByDepth: number[] | null = null) {
+  private findLoops(block: MIRBlock, loopIDsByDepth: number[] | null = null) {
     if (loopIDsByDepth === null) {
       loopIDsByDepth = [block.number];
     }
@@ -217,15 +187,15 @@ export class Graph {
     block.loopID = loopIDsByDepth[block.loopDepth];
 
     if (!block.attributes.includes("backedge")) {
-      for (const succ of this.successorBlocks(block)) {
+      for (const succ of block.succs) {
         this.findLoops(succ, loopIDsByDepth);
       }
     }
   }
 
-  layer(block: MIRBlock, layer = 0) {
+  private layer(block: MIRBlock, layer = 0) {
     if (block.attributes.includes("backedge")) {
-      block.layer = this.successorBlocks(block)[0].layer;
+      block.layer = block.succs[0].layer;
       return;
     }
 
@@ -237,7 +207,7 @@ export class Graph {
       loopHeader = loopHeader.parentLoop;
     }
 
-    for (const succ of this.successorBlocks(block)) {
+    for (const succ of block.succs) {
       if (succ.loopDepth < block.loopDepth) {
         // This is an outgoing edge from the current loop.
         // Track it on our current loop's header to be layered later.
@@ -255,7 +225,7 @@ export class Graph {
     }
   }
 
-  makeLayoutNodes(): [LayoutNode[], LayoutNode[][]] {
+  private makeLayoutNodesByLayer(): LayoutNode[][] {
     let blocksByLayer: MIRBlock[][];
     {
       const blocksByLayerObj: { [layer: number]: MIRBlock[] } = {};
@@ -271,77 +241,107 @@ export class Graph {
         .map(([_, blocks]) => blocks);
     }
 
-    type Edge = [number, number];
+    type IncompleteEdge = {
+      src: LayoutNode,
+      dstBlock: MIRBlock,
+    };
 
-    const layoutNodes: LayoutNode[] = [];
+    let nodeID = 0;
+
     const layoutNodesByLayer: LayoutNode[][] = blocksByLayer.map(() => []);
-    const activeEdges: Edge[] = [];
+    const activeEdges: IncompleteEdge[] = [];
     for (const [layer, blocks] of blocksByLayer.entries()) {
       // Delete any active edges that terminate at this layer, since we do
       // not want to make any dummy nodes for them.
+      const terminatingEdges: IncompleteEdge[] = [];
       for (const block of blocks) {
         for (let i = activeEdges.length - 1; i >= 0; i--) {
-          const [from, to] = activeEdges[i];
-          if (to === block.number) {
+          const edge = activeEdges[i];
+          if (edge.dstBlock === block) {
+            terminatingEdges.push(edge);
             activeEdges.splice(i, 1);
           }
         }
       }
 
-      // Create dummy nodes for active edges.
-      let lastDummy: LayoutNode | null = null;
+      function connectNodes(from: LayoutNode, to: LayoutNode) {
+        if (!from.dstNodes.includes(to)) {
+          from.dstNodes.push(to);
+        }
+        if (!to.srcNodes.includes(from)) {
+          to.srcNodes.push(from);
+        }
+      }
+
+      // Create dummy nodes for active edges, coalescing all edges with the same final destination.
+      const dummiesByDest: Map<number, DummyNode> = new Map();
       for (const edge of activeEdges) {
-        const [from, to] = edge;
-        if (to === lastDummy?.successors[0]) {
+        let dummy: DummyNode;
+
+        const existingDummy = dummiesByDest.get(edge.dstBlock.number)
+        if (existingDummy) {
           // Collapse multiple edges into a single dummy node.
-          lastDummy!.predecessors.push(from);
+          connectNodes(edge.src, existingDummy);
+          dummy = existingDummy;
         } else {
           // Create a new dummy node.
-          const node: LayoutNode = {
+          const newDummy: DummyNode = {
+            id: nodeID++,
             pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
             size: { x: 0, y: 0 },
             indent: 0,
-            predecessors: [from],
-            successors: [to],
             block: null,
+            srcNodes: [],
+            dstNodes: [],
+            dstBlock: edge.dstBlock,
           };
-          layoutNodes.push(node);
-          layoutNodesByLayer[layer].push(node);
-          lastDummy = node;
+          connectNodes(edge.src, newDummy);
+          layoutNodesByLayer[layer].push(newDummy);
+          dummiesByDest.set(edge.dstBlock.number, newDummy);
+          dummy = newDummy;
         }
+
+        // Update the active edge with the latest dummy.
+        edge.src = dummy;
       }
 
       // Create real nodes for each block on the layer.
       for (const block of blocks) {
-        const node: LayoutNode = {
+        const node: BlockNode = {
+          id: nodeID++,
           pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
-          size: block.contentSize,
-          indent: 0,
-          predecessors: block.predecessors,
-          successors: block.successors,
-          block: block.number,
+          size: block.size,
+          indent: isTrueLH(block) ? LOOP_INDENT : 0,
+          block: block,
+          srcNodes: [],
+          dstNodes: [],
         };
-        if (isTrueLH(block)) {
-          node.indent = LOOP_INDENT;
+        for (const edge of terminatingEdges) {
+          if (edge.dstBlock === block) {
+            connectNodes(edge.src, node);
+          }
         }
-
-        layoutNodes.push(node);
         layoutNodesByLayer[layer].push(node);
         block.layoutNode = node;
 
-        for (const succ of this.successorBlocks(block)) {
-          if (succ.attributes.includes("backedge")) {
-            continue;
+        if (block.attributes.includes("backedge")) {
+          // Connect backedge to loop header immediately
+          connectNodes(block.layoutNode, block.succs[0].layoutNode);
+        } else {
+          for (const succ of block.succs) {
+            if (succ.attributes.includes("backedge")) {
+              continue;
+            }
+            activeEdges.push({ src: node, dstBlock: succ });
           }
-          activeEdges.push([block.number, succ.number]);
         }
       }
     }
 
-    return [layoutNodes, layoutNodesByLayer];
+    return layoutNodesByLayer;
   }
 
-  verticalize(layoutNodesByLayer: LayoutNode[][]): number[] {
+  private verticalize(layoutNodesByLayer: LayoutNode[][]): number[] {
     const layerHeights: number[] = new Array(layoutNodesByLayer.length);
 
     let nextLayerY = CONTENT_PADDING;
@@ -367,15 +367,6 @@ export class Graph {
         const node = nodes[i];
         const neighbor = nodes[i + 1];
 
-        // Special case: dummy nodes with the same destination should coalesce
-        if (
-          node.block === null && neighbor.block === null
-          && node.successors[0] === neighbor.successors[0] // yes, we always want actual successors
-        ) {
-          neighbor.pos.x = node.pos.x;
-          continue;
-        }
-
         const firstNonDummy = node.block === null && neighbor.block !== null;
         const nodeRightPlusPadding = node.pos.x + node.size.x + (firstNonDummy ? PORT_START : 0) + BLOCK_GAP;
         neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
@@ -392,8 +383,7 @@ export class Graph {
           continue;
         }
 
-        const block = this.byNum[node.block];
-        const loopHeader = block.loopID !== null ? asLH(this.byNum[block.loopID]) : null;
+        const loopHeader = node.block.loopID !== null ? asLH(this.byNum[node.block.loopID]) : null;
         if (loopHeader) {
           const loopHeaderNode = loopHeader.layoutNode;
           node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.indent);
@@ -403,109 +393,124 @@ export class Graph {
       // Push nodes to the right if they are too close together
       pushNeighbors(nodes);
 
-      // Walk this layer and the next, shifting nodes to the right to line
-      // up the edges.
-      let nextCursor = 0;
-      for (const node of nodes) {
-        for (const [srcPort, succNum] of node.successors.entries()) {
-          let toShift = null;
-          for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
-            const nextNode = layoutNodesByLayer[layer + 1][i];
-            if (
-              (nextNode.block === null && nextNode.successors[0] === succNum && nextNode.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block))
-              || (nextNode.block !== null && this.byNum[nextNode.block].number === succNum)
-            ) {
-              toShift = nextNode;
-              nextCursor = i + 1;
-            }
-          }
+      // // Walk this layer and the next, shifting nodes to the right to line
+      // // up the edges.
+      // let nextCursor = 0;
+      // for (const node of nodes) {
+      //   for (const [srcPort, succNum] of node.successors.entries()) {
+      //     let toShift = null;
+      //     for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
+      //       const nextNode = layoutNodesByLayer[layer + 1][i];
+      //       if (
+      //         (
+      //           nextNode.block === null && nextNode.successors[0] === succNum // next node is a dummy with the same successor
+      //           && nextNode.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block.number) // we are the next node's first predecessor
+      //         )
+      //         || (
+      //           nextNode.block !== null && nextNode.block.number === succNum // next node is our successor block
+      //         )
+      //       ) {
+      //         toShift = nextNode;
+      //         nextCursor = i + 1;
+      //       }
+      //     }
 
-          if (toShift) {
-            const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
-            const dstPortOffset = PORT_START;
-            toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
-          }
-        }
-      }
+      //     if (toShift) {
+      //       const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
+      //       const dstPortOffset = PORT_START;
+      //       toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+      //     }
+      //   }
+      // }
     }
 
     // Walk back up the layers, doing a very limited shift-right
     for (let layer = layoutNodesByLayer.length - 1; layer >= 0; layer--) {
       const nodes = layoutNodesByLayer[layer];
 
-      for (const node of nodes) {
-        const predecessorsMinusBackedges = node.predecessors.filter(p => !this.byNum[p].attributes.includes("backedge"));
-        if (predecessorsMinusBackedges.length !== 1) {
-          continue;
-        }
+      // for (const node of nodes) {
+      //   const predecessorsMinusBackedges = node.predecessors.filter(p => !this.byNum[p].attributes.includes("backedge"));
+      //   if (predecessorsMinusBackedges.length !== 1) {
+      //     continue;
+      //   }
 
-        const predNum = predecessorsMinusBackedges[0];
-        for (let i = 0; i < layoutNodesByLayer[layer - 1].length; i++) {
-          const prevNode = layoutNodesByLayer[layer - 1][i];
-          if (prevNode.block !== null && this.byNum[prevNode.block].number === predNum) {
-            const prevBlock = this.byNum[prevNode.block];
-            if (prevBlock.successors.length === 1) {
-              const srcPortOffset = PORT_START;
-              const dstPortOffset = PORT_START;
-              prevNode.pos.x = Math.max(prevNode.pos.x, node.pos.x + dstPortOffset - srcPortOffset);
-            }
-          }
-        }
-      }
+      //   const predNum = predecessorsMinusBackedges[0];
+      //   for (let i = 0; i < layoutNodesByLayer[layer - 1].length; i++) {
+      //     const prevNode = layoutNodesByLayer[layer - 1][i];
+      //     if (prevNode.block !== null && prevNode.block.number === predNum) {
+      //       if (prevNode.block.succs.length === 1) {
+      //         const srcPortOffset = PORT_START;
+      //         const dstPortOffset = PORT_START;
+      //         prevNode.pos.x = Math.max(prevNode.pos.x, node.pos.x + dstPortOffset - srcPortOffset);
+      //       }
+      //     }
+      //   }
+      // }
 
       // Push nodes to the right if they are too close together
       pushNeighbors(nodes);
     }
   }
 
-  render(nodesByLayer: LayoutNode[][], layerHeights: number[]) {
+  private renderBlock(block: MIRBlock): HTMLElement {
+    const el = document.createElement("div");
+    el.classList.add("ig-block");
+    let html = "";
+    let desc = "";
+    if (block.attributes.includes("loopheader")) {
+      desc = " (loop header)";
+    } else if (block.attributes.includes("backedge")) {
+      desc = " (backedge)";
+    }
+    html += `<h2>Block ${block.number}${desc}</h2>`;
+    html += `<div class="instructions">`;
+    for (const ins of block.instructions) {
+      html += `<div>${ins.id} ${ins.opcode}</div>`;
+    }
+    html += "</div>";
+    el.innerHTML = html;
+    this.container.appendChild(el);
+
+    el.style.width = `${el.clientWidth + 10}px`; // fudge factor because text sucks
+    el.style.height = `${el.clientHeight}px`;
+
+    return el;
+  }
+
+  private render(nodesByLayer: LayoutNode[][], layerHeights: number[]) {
     // Position blocks according to layout
     for (const nodes of nodesByLayer) {
       for (const node of nodes) {
         if (node.block !== null) {
-          const block = this.byNum[node.block];
-          block.pos = node.pos;
+          const block = node.block;
 
-          const el = this.els[block.number];
-          el.style.left = `${node.pos.x}px`;
-          el.style.top = `${node.pos.y}px`;
+          block.el.style.left = `${node.pos.x}px`;
+          block.el.style.top = `${node.pos.y}px`;
 
-          if (isTrueLH(block)) {
-            const backedgeNode = block.backedge.layoutNode;
-            backedgeNode.pos = {
-              x: node.pos.x + block.contentSize.x + BACKEDGE_GAP,
-              y: node.pos.y + BACKEDGE_PUSHDOWN,
-            };
+          // TODO: Surely we don't need to do this here? We should make sure
+          // that the backedge's layout node positions it correctly.
+          // if (isTrueLH(block)) {
+          //   const backedgeNode = block.backedge.layoutNode;
+          //   backedgeNode.pos = {
+          //     x: node.pos.x + block.size.x + BACKEDGE_GAP,
+          //     y: node.pos.y + BACKEDGE_PUSHDOWN,
+          //   };
 
-            const backedgeEl = this.els[block.backedge.number];
-            backedgeEl.style.left = `${backedgeNode.pos.x}px`;
-            backedgeEl.style.top = `${backedgeNode.pos.y}px`;
-          }
-        }
-      }
-    }
-
-    // Optional: render dummy nodes
-    if (false) {
-      for (const nodes of nodesByLayer) {
-        for (const node of nodes) {
-          if (node.block === null) {
-            const el = document.createElement("div");
-            el.classList.add("dummy");
-            el.innerText = `${node.predecessors[0]} -> ${node.successors[0]}`;
-            el.style.left = `${node.pos.x}px`;
-            el.style.top = `${node.pos.y}px`;
-            this.container.appendChild(el);
-          }
+          //   const backedgeEl = block.backedge.el;
+          //   backedgeEl.style.left = `${backedgeNode.pos.x}px`;
+          //   backedgeEl.style.top = `${backedgeNode.pos.y}px`;
+          // }
         }
       }
     }
 
     // Create and size the SVG
     let maxX = 0, maxY = 0;
-    for (const block of this.blocks) {
-      maxX = Math.max(maxX, block.pos.x + block.contentSize.x + CONTENT_PADDING); // TODO: Fudge factor
-      maxY = Math.max(maxY, block.pos.y + block.contentSize.y + CONTENT_PADDING);
+    for (const nodes of nodesByLayer) {
+      for (const node of nodes) {
+        maxX = Math.max(maxX, node.pos.x + node.size.x + CONTENT_PADDING);
+        maxY = Math.max(maxY, node.pos.y + node.size.y + CONTENT_PADDING);
+      }
     }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", `${maxX}`);
@@ -516,102 +521,71 @@ export class Graph {
     this.height = maxY;
 
     // Render arrows
+    console.log(nodesByLayer);
     for (let layer = 0; layer < nodesByLayer.length; layer++) {
       const nodes = nodesByLayer[layer];
       for (const node of nodes) {
-        for (const [i, succ] of node.successors.entries()) {
+        if (!node.block) {
+          assert(node.dstNodes.length === 1, "Dummy nodes must have exactly one destination");
+        }
+
+        for (const [i, dst] of node.dstNodes.entries()) {
           const x1 = node.pos.x + PORT_START + PORT_SPACING * i;
-          const y1 = node.pos.y + (node.block !== null ? this.byNum[node.block].contentSize.y : 0);
+          const y1 = node.pos.y + node.size.y;
 
-          if (this.byNum[succ].attributes.includes("backedge")) {
-            // Draw backedge arrow
-            const backedge = this.byNum[succ];
-            const backedgeNode = backedge.layoutNode;
-            {
-              const x2 = backedgeNode.pos.x + backedge.contentSize.x;
-              const y2 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
-              const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
-              const arrow = backedgeArrow(x1, y1, x2, y2, x2 + ARROW_RADIUS * 2, ym);
-              svg.appendChild(arrow);
-            }
+          if (node.block?.attributes.includes("backedge")) {
+            // TODO: Draw loop header arrow
+          } else if (dst.block?.attributes.includes("backedge")) {
+            // TODO: Draw backedge arrows once we actually create dummy nodes for backedges
 
-            // Draw loop header arrow
-            const header = this.byNum[backedge.successors[0]];
-            const headerNode = header.layoutNode;
-            {
-              const x1 = backedgeNode.pos.x + PORT_START;
-              const y1 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
-              const x2 = headerNode.pos.x + header.contentSize.x;
-              const y2 = headerNode.pos.y + HEADER_ARROW_PUSHDOWN;
-              const arrow = loopHeaderArrow(x1, y1, x2, y2);
-              svg.appendChild(arrow);
-            }
-
-            continue;
-          }
-
-          let destNode: LayoutNode;
-          if (node.block && this.byNum[node.block].attributes.includes("backedge")) {
-            const headerNode = nodesByLayer[layer].find(n => n.block === this.byNum[node.block!].successors[0]);
-            assert(headerNode);
-            destNode = headerNode;
+            // // Draw backedge arrow
+            // const backedge = dst.block;
+            // const backedgeNode = backedge.layoutNode;
+            // {
+            //   const x2 = backedgeNode.pos.x + backedge.size.x;
+            //   const y2 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
+            //   const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+            //   const arrow = backedgeArrow(x1, y1, x2, y2, x2 + ARROW_RADIUS * 2, ym);
+            //   svg.appendChild(arrow);
+            // }
+            //
+            // // Draw loop header arrow
+            // const header = backedge.succs[0];
+            // const headerNode = header.layoutNode;
+            // {
+            //   const x1 = backedgeNode.pos.x + PORT_START;
+            //   const y1 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
+            //   const x2 = headerNode.pos.x + header.size.x;
+            //   const y2 = headerNode.pos.y + HEADER_ARROW_PUSHDOWN;
+            //   const arrow = loopHeaderArrow(x1, y1, x2, y2);
+            //   svg.appendChild(arrow);
+            // }
           } else {
-            const successorNode = nodesByLayer[layer + 1].find(n => (
-              (n.block !== null && this.byNum[n.block].number === succ)
-              || (n.block === null && n.successors[0] === succ && n.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block)) // TODO: find dummy nodes
-            ));
-            assert(successorNode);
-            destNode = successorNode;
+            const x2 = dst.pos.x + PORT_START;
+            const y2 = dst.pos.y;
+            const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+            // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
+            const arrow = downwardArrow(x1, y1, x2, y2, ym, dst.block !== null);
+            // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
+            svg.appendChild(arrow);
           }
-
-          const x2 = destNode.pos.x + PORT_START;
-          const y2 = destNode.pos.y;
-          const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
-          // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
-          const arrow = downwardArrow(x1, y1, x2, y2, ym, ARROW_RADIUS, destNode.block !== null);
-          // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
-          svg.appendChild(arrow);
         }
       }
     }
 
+    // Render dummy nodes
     if (false) {
-      // Render arrows
-      for (const block of this.blocks) {
-        if (block.attributes.includes("backedge")) {
-          continue; // TODO: re-enable after backedges are positioned
-          const header = this.byNum[block.successors[0]];
-          const x1 = block.pos.x + PORT_START;
-          const y1 = block.pos.y;
-          const x2 = header.pos.x;
-          const y2 = header.pos.y + PORT_START;
-          const arrow = loopHeaderArrow(x1, y1, x2, y2, ARROW_RADIUS);
-          arrow.setAttribute("data-edge", `${block.number} -> ${header.number}`);
-          svg.appendChild(arrow);
-        } else {
-          const successors = block.successors.map(id => this.byNum[id]);
-          for (const [i, succ] of successors.entries()) {
-            const x1 = block.pos.x + PORT_START + PORT_SPACING * i;
-            const y1 = block.pos.y + block.contentSize.y;
-
-            if (succ.attributes.includes("backedge")) {
-              continue; // TODO: re-enable after backedges are positioned
-              const x2 = succ.pos.x + PORT_START;
-              const y2 = succ.pos.y + succ.contentSize.y;
-              const ym = y1 + LAYER_GAP / 2;
-              const arrow = backedgeArrow(x1, y1, x2, y2, -1, ym);
-              arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
-              svg.appendChild(arrow);
-            } else {
-              const x2 = succ.pos.x + PORT_START;
-              const y2 = succ.pos.y;
-              const ym = y1 + LAYER_GAP / 2;
-              // const ym = y2 - GAP_ABOVE_CHILDREN / 2;
-              const arrow = downwardArrow(x1, y1, x2, y2, ym);
-              arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
-              svg.appendChild(arrow);
-            }
-          }
+      for (const nodes of nodesByLayer) {
+        for (const node of nodes) {
+          const el = document.createElement("div");
+          el.innerText = `${node.id} -> ${node.dstNodes.map(n => n.id)}`;
+          el.style.position = "absolute";
+          el.style.border = "1px solid black";
+          // el.style.borderWidth = "1px 0 0 1px";
+          el.style.backgroundColor = "white";
+          el.style.left = `${node.pos.x}px`;
+          el.style.top = `${node.pos.y}px`;
+          this.container.appendChild(el);
         }
       }
     }
@@ -622,11 +596,18 @@ function downwardArrow(
   x1: number, y1: number,
   x2: number, y2: number,
   ym: number,
-  r = ARROW_RADIUS,
-  doArrowhead = true,
+  doArrowhead: boolean,
   stroke = 1,
-) {
+): SVGElement {
+  const r = ARROW_RADIUS;
   assert(y1 + r <= ym && ym < y2 - r, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+
+  // Align stroke to pixels
+  if (stroke % 2 === 1) {
+    x1 += 0.5;
+    x2 += 0.5;
+    ym += 0.5;
+  }
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
@@ -664,9 +645,9 @@ function backedgeArrow(
   x1: number, y1: number,
   x2: number, y2: number,
   xm: number, ym: number,
-  r = ARROW_RADIUS,
   stroke = 1,
-) {
+): SVGElement {
+  const r = ARROW_RADIUS;
   assert(y1 + r <= ym && y2 + r <= ym && x1 <= xm && x2 <= xm, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, xm = ${xm}, ym = ${ym}, r = ${r}`, true);
 
   let path = "";
@@ -698,7 +679,7 @@ function loopHeaderArrow(
   x1: number, y1: number,
   x2: number, y2: number,
   stroke = 1,
-) {
+): SVGElement {
   assert(x2 < x1 && y2 === y1, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}`, true);
 
   let path = "";
@@ -720,21 +701,9 @@ function loopHeaderArrow(
   return g;
 }
 
-function arrowhead(x: number, y: number, rot: number, size = 5) {
+function arrowhead(x: number, y: number, rot: number, size = 5): SVGElement {
   const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
   p.setAttribute("d", `M 0 0 L ${-size} ${size * 1.5} L ${size} ${size * 1.5} Z`);
   p.setAttribute("transform", `translate(${x}, ${y}) rotate(${rot})`);
   return p;
-}
-
-type Falsy = null | undefined | false | 0 | -0 | 0n | "";
-
-function assert<T>(cond: T | Falsy, msg?: string, soft = false): asserts cond is T {
-  if (!cond) {
-    if (soft) {
-      console.error(msg ?? "Assertion failed");
-    } else {
-      throw new Error(msg ?? "Assertion failed");
-    }
-  }
 }
