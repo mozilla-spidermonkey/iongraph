@@ -393,62 +393,28 @@ export class Graph {
       // Push nodes to the right if they are too close together
       pushNeighbors(nodes);
 
-      // // Walk this layer and the next, shifting nodes to the right to line
-      // // up the edges.
-      // let nextCursor = 0;
-      // for (const node of nodes) {
-      //   for (const [srcPort, succNum] of node.successors.entries()) {
-      //     let toShift = null;
-      //     for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
-      //       const nextNode = layoutNodesByLayer[layer + 1][i];
-      //       if (
-      //         (
-      //           nextNode.block === null && nextNode.successors[0] === succNum // next node is a dummy with the same successor
-      //           && nextNode.predecessors[0] === (node.block === null ? node.predecessors[0] : node.block.number) // we are the next node's first predecessor
-      //         )
-      //         || (
-      //           nextNode.block !== null && nextNode.block.number === succNum // next node is our successor block
-      //         )
-      //       ) {
-      //         toShift = nextNode;
-      //         nextCursor = i + 1;
-      //       }
-      //     }
+      // Walk this layer and the next, shifting nodes to the right to line
+      // up the edges.
+      let nextCursor = 0;
+      for (const node of nodes) {
+        for (const [srcPort, dst] of node.dstNodes.entries()) {
+          let toShift: LayoutNode | null = null;
+          for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
+            const nextNode = layoutNodesByLayer[layer + 1][i];
+            if (nextNode.srcNodes[0] === node) {
+              toShift = nextNode;
+              nextCursor = i + 1;
+              break;
+            }
+          }
 
-      //     if (toShift) {
-      //       const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
-      //       const dstPortOffset = PORT_START;
-      //       toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
-      //     }
-      //   }
-      // }
-    }
-
-    // Walk back up the layers, doing a very limited shift-right
-    for (let layer = layoutNodesByLayer.length - 1; layer >= 0; layer--) {
-      const nodes = layoutNodesByLayer[layer];
-
-      // for (const node of nodes) {
-      //   const predecessorsMinusBackedges = node.predecessors.filter(p => !this.byNum[p].attributes.includes("backedge"));
-      //   if (predecessorsMinusBackedges.length !== 1) {
-      //     continue;
-      //   }
-
-      //   const predNum = predecessorsMinusBackedges[0];
-      //   for (let i = 0; i < layoutNodesByLayer[layer - 1].length; i++) {
-      //     const prevNode = layoutNodesByLayer[layer - 1][i];
-      //     if (prevNode.block !== null && prevNode.block.number === predNum) {
-      //       if (prevNode.block.succs.length === 1) {
-      //         const srcPortOffset = PORT_START;
-      //         const dstPortOffset = PORT_START;
-      //         prevNode.pos.x = Math.max(prevNode.pos.x, node.pos.x + dstPortOffset - srcPortOffset);
-      //       }
-      //     }
-      //   }
-      // }
-
-      // Push nodes to the right if they are too close together
-      pushNeighbors(nodes);
+          if (toShift) {
+            const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
+            const dstPortOffset = PORT_START;
+            toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+          }
+        }
+      }
     }
   }
 
