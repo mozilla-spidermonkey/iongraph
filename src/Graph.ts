@@ -8,7 +8,8 @@ const LOOP_INDENT = 0; // TODO: This is not really useful because edge straighte
 const PORT_START = 16;
 const PORT_SPACING = 40;
 const ARROW_RADIUS = 8;
-const JOINT_SPACING = 2;
+const JOINT_SPACING = 3;
+const HEADER_ARROW_PUSHDOWN = 16;
 
 const CONTENT_PADDING = 20;
 
@@ -249,6 +250,7 @@ export class Graph {
 
     const layoutNodesByLayer: LayoutNode[][] = blocksByLayer.map(() => []);
     const activeEdges: IncompleteEdge[] = [];
+    const latestDummyForBackedge = new Map<MIRBlock, DummyNode>();
     for (const [layer, blocks] of blocksByLayer.entries()) {
       // Delete any active edges that terminate at this layer, since we do
       // not want to make any dummy nodes for them.
@@ -305,8 +307,46 @@ export class Graph {
         edge.src = dummy;
       }
 
+      // Track which blocks will get backedge dummy nodes.
+      interface LoopDummy {
+        loopID: number,
+        block: MIRBlock,
+      }
+      const loopDummies: LoopDummy[] = [];
+      const loopHeaders = new Set<number>();
+      for (const block of blocks) {
+        if (isTrueLH(block)) {
+          loopHeaders.add(block.number);
+        }
+
+        let currentLoopHeader = asLH(this.byNum[block.loopID]);
+        while (isTrueLH(currentLoopHeader)) {
+          const existing = loopDummies.find(d => d.loopID === currentLoopHeader.number);
+          if (existing) {
+            // We have seen this loop before but have a new rightmost block for
+            // it. Update which block should get the dummy.
+            existing.block = block;
+          } else {
+            if (!loopHeaders.has(currentLoopHeader.number)) {
+              // This loop has not been seen before, and it didn't start on
+              // this layer, so track it, inserting to the front of the list so
+              // that iterating later will produce dummy nodes in the correct
+              // order.
+              loopDummies.unshift({ loopID: currentLoopHeader.number, block: block });
+            }
+          }
+
+          const parentLoop = currentLoopHeader.parentLoop;
+          if (!parentLoop) {
+            break;
+          }
+          currentLoopHeader = parentLoop;
+        }
+      }
+
       // Create real nodes for each block on the layer.
       for (const block of blocks) {
+        // Create new layout node for block
         const node: BlockNode = {
           id: nodeID++,
           pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
@@ -325,15 +365,37 @@ export class Graph {
         layoutNodesByLayer[layer].push(node);
         block.layoutNode = node;
 
+        // Create dummy nodes for backedges
+        for (const loopDummy of loopDummies.filter(d => d.block === block)) {
+          const backedge = asLH(this.byNum[loopDummy.loopID]).backedge;
+          const backedgeDummy: DummyNode = {
+            id: nodeID++,
+            pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
+            size: { x: 0, y: 0 },
+            indent: 0,
+            block: null,
+            srcNodes: [],
+            dstNodes: [],
+            dstBlock: backedge,
+            jointOffsets: [],
+          };
+          connectNodes(backedgeDummy, latestDummyForBackedge.get(backedge) ?? backedge.layoutNode);
+          layoutNodesByLayer[layer].push(backedgeDummy);
+          latestDummyForBackedge.set(backedge, backedgeDummy);
+        }
+
         if (block.attributes.includes("backedge")) {
           // Connect backedge to loop header immediately
           connectNodes(block.layoutNode, block.succs[0].layoutNode);
         } else {
           for (const succ of block.succs) {
             if (succ.attributes.includes("backedge")) {
-              continue;
+              const backedgeDummy = latestDummyForBackedge.get(succ);
+              assert(backedgeDummy);
+              connectNodes(block.layoutNode, backedgeDummy);
+            } else {
+              activeEdges.push({ src: node, dstBlock: succ });
             }
-            activeEdges.push({ src: node, dstBlock: succ });
           }
         }
       }
@@ -555,20 +617,6 @@ export class Graph {
 
           block.el.style.left = `${node.pos.x}px`;
           block.el.style.top = `${node.pos.y}px`;
-
-          // TODO: Surely we don't need to do this here? We should make sure
-          // that the backedge's layout node positions it correctly.
-          // if (isTrueLH(block)) {
-          //   const backedgeNode = block.backedge.layoutNode;
-          //   backedgeNode.pos = {
-          //     x: node.pos.x + block.size.x + BACKEDGE_GAP,
-          //     y: node.pos.y + BACKEDGE_PUSHDOWN,
-          //   };
-
-          //   const backedgeEl = block.backedge.el;
-          //   backedgeEl.style.left = `${backedgeNode.pos.x}px`;
-          //   backedgeEl.style.top = `${backedgeNode.pos.y}px`;
-          // }
         }
       }
     }
@@ -594,7 +642,7 @@ export class Graph {
       const nodes = nodesByLayer[layer];
       for (const node of nodes) {
         if (!node.block) {
-          assert(node.dstNodes.length === 1, "Dummy nodes must have exactly one destination");
+          assert(node.dstNodes.length === 1, `dummy nodes must have exactly one destination, but dummy ${node.id} had ${node.dstNodes.length}`);
         }
         assert(node.dstNodes.length === node.jointOffsets.length, "must have a joint offset for each destination");
 
@@ -604,21 +652,6 @@ export class Graph {
 
           if (node.block?.attributes.includes("backedge")) {
             // TODO: Draw loop header arrow
-          } else if (dst.block?.attributes.includes("backedge")) {
-            // TODO: Draw backedge arrows once we actually create dummy nodes for backedges
-
-            // // Draw backedge arrow
-            // const backedge = dst.block;
-            // const backedgeNode = backedge.layoutNode;
-            // {
-            //   const x2 = backedgeNode.pos.x + backedge.size.x;
-            //   const y2 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
-            //   const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
-            //   const arrow = backedgeArrow(x1, y1, x2, y2, x2 + ARROW_RADIUS * 2, ym);
-            //   svg.appendChild(arrow);
-            // }
-            //
-            // // Draw loop header arrow
             // const header = backedge.succs[0];
             // const headerNode = header.layoutNode;
             // {
@@ -629,11 +662,34 @@ export class Graph {
             //   const arrow = loopHeaderArrow(x1, y1, x2, y2);
             //   svg.appendChild(arrow);
             // }
+          } else if (dst.block?.attributes.includes("backedge")) {
+            // Draw backedge arrow
+            const backedge = dst.block;
+            const x2 = backedge.layoutNode.pos.x + backedge.size.x;
+            const y2 = backedge.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
+            const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+            const arrow = arrowToBackedge(x1, y1, x2, y2);
+            svg.appendChild(arrow);
+          } else if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
+            if (node.block === null) {
+              // Draw upward arrow between dummies
+              const x2 = dst.pos.x + PORT_START;
+              const y2 = dst.pos.y;
+              const ym = (y1 - node.size.y) - LAYER_GAP / 2; // this really shouldn't matter because we should straighten all these out
+              const arrow = upwardArrow(x1, y1, x2, y2, ym, false);
+              svg.appendChild(arrow);
+            } else {
+              // Draw arrow to backedge dummy
+              const x2 = dst.pos.x + PORT_START;
+              const y2 = dst.pos.y;
+              const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2 + node.jointOffsets[i];
+              const arrow = arrowToBackedgeDummy(x1, y1, x2, y2, ym);
+              svg.appendChild(arrow);
+            }
           } else {
             const x2 = dst.pos.x + PORT_START;
             const y2 = dst.pos.y;
             const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2 + node.jointOffsets[i];
-            // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
             const arrow = downwardArrow(x1, y1, x2, y2, ym, dst.block !== null);
             // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
             svg.appendChild(arrow);
@@ -643,7 +699,7 @@ export class Graph {
     }
 
     // Render dummy nodes
-    if (false) {
+    if (true) {
       for (const nodes of nodesByLayer) {
         for (const node of nodes) {
           const el = document.createElement("div");
@@ -654,6 +710,7 @@ export class Graph {
           el.style.backgroundColor = "white";
           el.style.left = `${node.pos.x}px`;
           el.style.top = `${node.pos.y}px`;
+          el.style.whiteSpace = "nowrap";
           this.container.appendChild(el);
         }
       }
@@ -669,7 +726,7 @@ function downwardArrow(
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(y1 + r <= ym && ym < y2 - r, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+  assert(y1 + r <= ym && ym < y2 - r, `downward arrow: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
@@ -703,6 +760,55 @@ function downwardArrow(
   g.appendChild(p);
 
   if (doArrowhead) {
+    const v = arrowhead(x2, y2, 0);
+    g.appendChild(v);
+  }
+
+  return g;
+}
+
+function upwardArrow(
+  x1: number, y1: number,
+  x2: number, y2: number,
+  ym: number,
+  doArrowhead: boolean,
+  stroke = 1,
+): SVGElement {
+  const r = ARROW_RADIUS;
+  assert(y2 + r <= ym && ym <= y1 - r, `upward arrow: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+
+  // Align stroke to pixels
+  if (stroke % 2 === 1) {
+    x1 += 0.5;
+    x2 += 0.5;
+    ym += 0.5;
+  }
+
+  let path = "";
+  path += `M ${x1} ${y1} `; // move to start
+
+  if (Math.abs(x2 - x1) < 2 * r) {
+    // Degenerate case where the radii won't fit; fall back to bezier.
+    path += `C ${x1} ${y1 + (y2 - y1) / 3} ${x2} ${y1 + 2 * (y2 - y1) / 3} ${x2} ${y2}`;
+  } else {
+    const dir = Math.sign(x2 - x1);
+    path += `L ${x1} ${ym + r} `; // line up
+    path += `A ${r} ${r} 0 0 ${dir > 0 ? 1 : 0} ${x1 + r * dir} ${ym} `; // arc to joint
+    path += `L ${x2 - r * dir} ${ym} `; // joint
+    path += `A ${r} ${r} 0 0 ${dir > 0 ? 0 : 1} ${x2} ${ym - r} `; // arc to line
+    path += `L ${x2} ${y2}`; // line up
+  }
+
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", path);
+  p.setAttribute("fill", "none");
+  p.setAttribute("stroke", "black");
+  p.setAttribute("stroke-width", `${stroke}`);
+  g.appendChild(p);
+
+  if (doArrowhead) {
     const v = arrowhead(x2, y2, 180);
     g.appendChild(v);
   }
@@ -710,23 +816,18 @@ function downwardArrow(
   return g;
 }
 
-function backedgeArrow(
+function arrowToBackedge(
   x1: number, y1: number,
   x2: number, y2: number,
-  xm: number, ym: number,
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(y1 + r <= ym && y2 + r <= ym && x1 <= xm && x2 <= xm, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, xm = ${xm}, ym = ${ym}, r = ${r}`, true);
+  assert(x2 + r <= x1 && y2 + r <= y1, `to backedge: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, r = ${r}`, true);
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
-  path += `L ${x1} ${ym - r} `; // line down
-  path += `A ${r} ${r} 0 0 0 ${x1 + r} ${ym}`; // arc to horizontal joint
-  path += `L ${xm - r} ${ym} `; // horizontal joint
-  path += `A ${r} ${r} 0 0 0 ${xm} ${ym - r}`; // arc to vertical joint
-  path += `L ${xm} ${y2 + r}`; // vertical joint
-  path += `A ${r} ${r} 0 0 0 ${xm - r} ${y2}`; // arc to line
+  path += `L ${x1} ${y2 + r}`; // vertical joint
+  path += `A ${r} ${r} 0 0 0 ${x1 - r} ${y2}`; // arc to line
   path += `L ${x2} ${y2}`; // line left
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -740,6 +841,35 @@ function backedgeArrow(
 
   const v = arrowhead(x2, y2, 270);
   g.appendChild(v);
+
+  return g;
+}
+
+function arrowToBackedgeDummy(
+  x1: number, y1: number,
+  x2: number, y2: number,
+  ym: number,
+  stroke = 1,
+): SVGElement {
+  const r = ARROW_RADIUS;
+  assert(y1 + r <= ym && x1 <= x2 && y2 <= y1, `to backedge dummy: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+
+  let path = "";
+  path += `M ${x1} ${y1} `; // move to start
+  path += `L ${x1} ${ym - r} `; // line down
+  path += `A ${r} ${r} 0 0 0 ${x1 + r} ${ym}`; // arc to horizontal joint
+  path += `L ${x2 - r} ${ym} `; // horizontal joint
+  path += `A ${r} ${r} 0 0 0 ${x2} ${ym - r}`; // arc to line
+  path += `L ${x2} ${y2 + r}`; // line up
+
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", path);
+  p.setAttribute("fill", "none");
+  p.setAttribute("stroke", "black");
+  p.setAttribute("stroke-width", `${stroke}`);
+  g.appendChild(p);
 
   return g;
 }
