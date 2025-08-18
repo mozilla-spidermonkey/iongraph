@@ -10,6 +10,8 @@ const PORT_SPACING = 40;
 const ARROW_RADIUS = 8;
 const JOINT_SPACING = 3;
 const HEADER_ARROW_PUSHDOWN = 16;
+const BACKEDGE_GAP = 48;
+const BACKEDGE_ARROW_PUSHOUT = 32;
 
 const CONTENT_PADDING = 20;
 
@@ -332,7 +334,7 @@ export class Graph {
               // this layer, so track it, inserting to the front of the list so
               // that iterating later will produce dummy nodes in the correct
               // order.
-              loopDummies.unshift({ loopID: currentLoopHeader.number, block: block });
+              loopDummies.push({ loopID: currentLoopHeader.number, block: block });
             }
           }
 
@@ -432,55 +434,92 @@ export class Graph {
 
         const firstNonDummy = node.block === null && neighbor.block !== null;
         const nodeRightPlusPadding = node.pos.x + node.size.x + (firstNonDummy ? PORT_START : 0) + BLOCK_GAP;
-        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
+        const loopBackedgePosition = node.block?.attributes.includes("loopheader") ? node.pos.x + node.size.x + BACKEDGE_GAP : 0;
+        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding, loopBackedgePosition);
       }
     }
 
-    // Walk down the layers, straightening things out
-    for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
-      const nodes = layoutNodesByLayer[layer];
-
-      // Push nodes to the right so they fit inside their loop
-      for (const node of nodes) {
-        if (node.block === null) {
-          continue;
-        }
-
-        const loopHeader = node.block.loopID !== null ? asLH(this.byNum[node.block.loopID]) : null;
-        if (loopHeader) {
-          const loopHeaderNode = loopHeader.layoutNode;
-          node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.indent);
-        }
-      }
-
-      // Push nodes to the right if they are too close together
-      pushNeighbors(nodes);
-
-      // Walk this layer and the next, shifting nodes to the right to line
-      // up the edges.
-      let nextCursor = 0;
-      for (const node of nodes) {
-        for (const [srcPort, dst] of node.dstNodes.entries()) {
-          let toShift: LayoutNode | null = null;
-          for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
-            const nextNode = layoutNodesByLayer[layer + 1][i];
-            if (nextNode.srcNodes[0] === node) {
-              toShift = nextNode;
-              nextCursor = i + 1;
-              break;
+    function straightenBackedgeDummies() {
+      function* backedgeDummies() {
+        for (const nodes of layoutNodesByLayer) {
+          for (const node of nodes) {
+            if (node.block === null && node.dstBlock.attributes.includes("backedge")) {
+              yield node;
             }
           }
+        }
+      }
 
-          if (toShift) {
-            const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
-            const dstPortOffset = PORT_START;
-            toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+      // Track max position of backedge dummies
+      const backedgeLinePositions = new Map<MIRBlock, number>();
+      for (const dummy of backedgeDummies()) {
+        const backedge = dummy.dstBlock;
+        let desiredX = dummy.pos.x;
+        if (dummy.dstNodes[0].block) {
+          // Direct input to backedge
+          const bn = backedge.layoutNode;
+          desiredX = bn.pos.x + bn.size.x + BACKEDGE_ARROW_PUSHOUT;
+        }
+        backedgeLinePositions.set(backedge, Math.max(backedgeLinePositions.get(backedge) ?? 0, desiredX));
+      }
+
+      // Apply positions to backedge dummies
+      for (const dummy of backedgeDummies()) {
+        const backedge = dummy.dstBlock;
+        const x = backedgeLinePositions.get(backedge);
+        assert(x, `no position for backedge ${backedge.number}`);
+        dummy.pos.x = x;
+      }
+    }
+
+    const straightenChildren = () => {
+      // Walk down the layers, straightening things out
+      for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
+        const nodes = layoutNodesByLayer[layer];
+
+        // Push nodes to the right so they fit inside their loop
+        for (const node of nodes) {
+          if (node.block === null) {
+            continue;
+          }
+
+          const loopHeader = node.block.loopID !== null ? asLH(this.byNum[node.block.loopID]) : null;
+          if (loopHeader) {
+            const loopHeaderNode = loopHeader.layoutNode;
+            node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.indent);
+          }
+        }
+
+        // Push nodes to the right if they are too close together
+        pushNeighbors(nodes);
+
+        // Walk this layer and the next, shifting nodes to the right to line
+        // up the edges.
+        let nextCursor = 0;
+        for (const node of nodes) {
+          for (const [srcPort, dst] of node.dstNodes.entries()) {
+            let toShift: LayoutNode | null = null;
+            for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
+              const nextNode = layoutNodesByLayer[layer + 1][i];
+              if (nextNode.srcNodes[0] === node) {
+                toShift = nextNode;
+                nextCursor = i + 1;
+                break;
+              }
+            }
+
+            if (toShift) {
+              const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
+              const dstPortOffset = PORT_START;
+              toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+            }
           }
         }
       }
     }
 
-    // One final rightward push on all the layers after straightening
+    straightenChildren();
+    straightenBackedgeDummies();
     for (const nodes of layoutNodesByLayer) {
       pushNeighbors(nodes);
     }
@@ -651,17 +690,14 @@ export class Graph {
           const y1 = node.pos.y + node.size.y;
 
           if (node.block?.attributes.includes("backedge")) {
-            // TODO: Draw loop header arrow
-            // const header = backedge.succs[0];
-            // const headerNode = header.layoutNode;
-            // {
-            //   const x1 = backedgeNode.pos.x + PORT_START;
-            //   const y1 = backedgeNode.pos.y + HEADER_ARROW_PUSHDOWN;
-            //   const x2 = headerNode.pos.x + header.size.x;
-            //   const y2 = headerNode.pos.y + HEADER_ARROW_PUSHDOWN;
-            //   const arrow = loopHeaderArrow(x1, y1, x2, y2);
-            //   svg.appendChild(arrow);
-            // }
+            // Draw loop header arrow
+            const header = node.block.succs[0];
+            const x1 = node.pos.x;
+            const y1 = node.pos.y + HEADER_ARROW_PUSHDOWN;
+            const x2 = header.layoutNode.pos.x + header.size.x;
+            const y2 = header.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
+            const arrow = loopHeaderArrow(x1, y1, x2, y2);
+            svg.appendChild(arrow);
           } else if (dst.block?.attributes.includes("backedge")) {
             // Draw backedge arrow
             const backedge = dst.block;
@@ -675,7 +711,7 @@ export class Graph {
               // Draw upward arrow between dummies
               const x2 = dst.pos.x + PORT_START;
               const y2 = dst.pos.y;
-              const ym = (y1 - node.size.y) - LAYER_GAP / 2; // this really shouldn't matter because we should straighten all these out
+              const ym = y1 - LAYER_GAP / 2; // this really shouldn't matter because we should straighten all these out
               const arrow = upwardArrow(x1, y1, x2, y2, ym, false);
               svg.appendChild(arrow);
             } else {
@@ -699,7 +735,7 @@ export class Graph {
     }
 
     // Render dummy nodes
-    if (true) {
+    if (false) {
       for (const nodes of nodesByLayer) {
         for (const node of nodes) {
           const el = document.createElement("div");
@@ -760,7 +796,7 @@ function downwardArrow(
   g.appendChild(p);
 
   if (doArrowhead) {
-    const v = arrowhead(x2, y2, 0);
+    const v = arrowhead(x2, y2, 180);
     g.appendChild(v);
   }
 
@@ -809,7 +845,7 @@ function upwardArrow(
   g.appendChild(p);
 
   if (doArrowhead) {
-    const v = arrowhead(x2, y2, 180);
+    const v = arrowhead(x2, y2, 0);
     g.appendChild(v);
   }
 
@@ -823,6 +859,12 @@ function arrowToBackedge(
 ): SVGElement {
   const r = ARROW_RADIUS;
   assert(x2 + r <= x1 && y2 + r <= y1, `to backedge: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, r = ${r}`, true);
+
+  // Align stroke to pixels
+  if (stroke % 2 === 1) {
+    x1 += 0.5;
+    y2 += 0.5;
+  }
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
@@ -854,13 +896,20 @@ function arrowToBackedgeDummy(
   const r = ARROW_RADIUS;
   assert(y1 + r <= ym && x1 <= x2 && y2 <= y1, `to backedge dummy: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
 
+  // Align stroke to pixels
+  if (stroke % 2 === 1) {
+    x1 += 0.5;
+    x2 += 0.5;
+    ym += 0.5;
+  }
+
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
   path += `L ${x1} ${ym - r} `; // line down
   path += `A ${r} ${r} 0 0 0 ${x1 + r} ${ym}`; // arc to horizontal joint
   path += `L ${x2 - r} ${ym} `; // horizontal joint
   path += `A ${r} ${r} 0 0 0 ${x2} ${ym - r}`; // arc to line
-  path += `L ${x2} ${y2 + r}`; // line up
+  path += `L ${x2} ${y2}`; // line up
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
@@ -880,6 +929,12 @@ function loopHeaderArrow(
   stroke = 1,
 ): SVGElement {
   assert(x2 < x1 && y2 === y1, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}`, true);
+
+  // Align stroke to pixels
+  if (stroke % 2 === 1) {
+    y1 += 0.5;
+    y2 += 0.5;
+  }
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
