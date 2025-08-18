@@ -417,6 +417,11 @@ export class Graph {
         }
       }
     }
+
+    // One final rightward push on all the layers after straightening
+    for (const nodes of layoutNodesByLayer) {
+      pushNeighbors(nodes);
+    }
   }
 
   private finagleJoints(layoutNodesByLayer: LayoutNode[][]) {
