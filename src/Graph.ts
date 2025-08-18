@@ -3,15 +3,12 @@ import { assert } from "./utils";
 
 const LAYER_GAP = 36;
 const BLOCK_GAP = 24;
-// const LOOP_INDENT = 36;
-const LOOP_INDENT = 0; // This is not really useful because edge straightening will make everything look like the child of a loop.
-const BACKEDGE_GAP = 48;
-const BACKEDGE_PUSHDOWN = 0; // TODO: DELETE
-const HEADER_ARROW_PUSHDOWN = 16;
+const LOOP_INDENT = 0; // TODO: This is not really useful because edge straightening will make everything look like the child of a loop.
 
 const PORT_START = 16;
 const PORT_SPACING = 40;
-const ARROW_RADIUS = 10;
+const ARROW_RADIUS = 8;
+const JOINT_SPACING = 2;
 
 const CONTENT_PADDING = 20;
 
@@ -69,6 +66,7 @@ interface _LayoutNodeCommon {
   indent: number,
   srcNodes: LayoutNode[],
   dstNodes: LayoutNode[],
+  jointOffsets: number[],
 }
 
 type BlockNode = _LayoutNodeCommon & {
@@ -157,6 +155,7 @@ export class Graph {
     const layoutNodesByLayer = this.makeLayoutNodesByLayer();
     const layerHeights = this.verticalize(layoutNodesByLayer);
     this.straightenEdges(layoutNodesByLayer);
+    this.finagleJoints(layoutNodesByLayer);
 
     return [layoutNodesByLayer, layerHeights];
   }
@@ -294,6 +293,7 @@ export class Graph {
             srcNodes: [],
             dstNodes: [],
             dstBlock: edge.dstBlock,
+            jointOffsets: [],
           };
           connectNodes(edge.src, newDummy);
           layoutNodesByLayer[layer].push(newDummy);
@@ -315,6 +315,7 @@ export class Graph {
           block: block,
           srcNodes: [],
           dstNodes: [],
+          jointOffsets: [],
         };
         for (const edge of terminatingEdges) {
           if (edge.dstBlock === block) {
@@ -361,7 +362,7 @@ export class Graph {
     return layerHeights;
   }
 
-  straightenEdges(layoutNodesByLayer: LayoutNode[][]) {
+  private straightenEdges(layoutNodesByLayer: LayoutNode[][]) {
     function pushNeighbors(nodes: LayoutNode[]) {
       for (let i = 0; i < nodes.length - 1; i++) {
         const node = nodes[i];
@@ -413,6 +414,103 @@ export class Graph {
             const dstPortOffset = PORT_START;
             toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
           }
+        }
+      }
+    }
+  }
+
+  private finagleJoints(layoutNodesByLayer: LayoutNode[][]) {
+    interface Joint {
+      x1: number,
+      x2: number,
+      src: LayoutNode,
+      srcPort: number,
+      dst: LayoutNode,
+    }
+
+    for (const nodes of layoutNodesByLayer) {
+      // Get all joints into a list, and sort by the following criteria:
+      // - Rightward edges from left to right
+      // - Leftward edges from right to left
+      // Sorting of leftward vs. rightward is irrelevant.
+      const joints: Joint[] = [];
+      for (const node of nodes) {
+        node.jointOffsets = new Array(node.dstNodes.length).fill(0);
+
+        if (node.block?.attributes.includes("backedge")) {
+          continue;
+        }
+
+        for (const [srcPort, dst] of node.dstNodes.entries()) {
+          const x1 = node.pos.x + PORT_START + PORT_SPACING * srcPort;
+          const x2 = dst.pos.x + PORT_START;
+          if (Math.abs(x2 - x1) < 2 * ARROW_RADIUS) {
+            // Ignore edges that are narrow enough not to render with a joint.
+            continue;
+          }
+          joints.push({ x1, x2, src: node, srcPort, dst });
+        }
+      }
+      joints.sort((a, b) => {
+        const aRightward = a.x2 - a.x1 >= 0;
+        const bRightward = b.x2 - b.x1 >= 0;
+        if (aRightward !== bRightward) {
+          return 1;
+        }
+
+        if (aRightward) {
+          // Sort rightward edges left to right by x1
+          return a.x1 - b.x1;
+        } else {
+          // Sort leftward edges right to left by x1
+          return b.x1 - a.x1;
+        }
+      });
+
+      // Greedily sort joints into "tracks" based on whether they overlap horizontally with each other.
+      const rightwardTracks: Joint[][] = [];
+      const leftwardTracks: Joint[][] = [];
+      nextJoint:
+      for (const joint of joints) {
+        const trackSet = joint.x2 - joint.x1 >= 0 ? rightwardTracks : leftwardTracks;
+        for (const track of trackSet) {
+          let roomInTrack = true;
+          for (const otherJoint of track) {
+            if (joint.dst === otherJoint.dst) {
+              // Assign the joint to this track to merge arrows
+              break;
+            }
+
+            const al = Math.min(joint.x1, joint.x2), ar = Math.max(joint.x1, joint.x2);
+            const bl = Math.min(otherJoint.x1, otherJoint.x2), br = Math.max(otherJoint.x1, otherJoint.x2);
+            const overlaps = ar > bl && al < br;
+            if (overlaps) {
+              roomInTrack = false;
+              break;
+            }
+          }
+
+          if (roomInTrack) {
+            track.push(joint);
+            continue nextJoint;
+          }
+        }
+
+        // If we get here, there was no room in any track, so make a new track with this joint.
+        trackSet.push([joint]);
+      }
+
+      // Use track info to apply joint offsets to nodes for rendering.
+      for (const [i, track] of rightwardTracks.entries()) {
+        for (const joint of track) {
+          assert(joint.x2 >= joint.x1, `expected rightward edge from ${joint.src.id} (${joint.src.block?.number ?? "dummy"}) to ${joint.dst.id} (${joint.dst.block?.number ?? "dummy"}): x1 = ${joint.x1}, x2 = ${joint.x2}`, true);
+          joint.src.jointOffsets[joint.srcPort] = -i * JOINT_SPACING;
+        }
+      }
+      for (const [i, track] of leftwardTracks.entries()) {
+        for (const joint of track) {
+          assert(joint.x2 < joint.x1, `expected leftward edge from ${joint.src.id} (${joint.src.block?.number ?? "dummy"}) to ${joint.dst.id} (${joint.dst.block?.number ?? "dummy"}): x1 = ${joint.x1}, x2 = ${joint.x2}`, true);
+          joint.src.jointOffsets[joint.srcPort] = (i + 1) * JOINT_SPACING;
         }
       }
     }
@@ -487,13 +585,13 @@ export class Graph {
     this.height = maxY;
 
     // Render arrows
-    console.log(nodesByLayer);
     for (let layer = 0; layer < nodesByLayer.length; layer++) {
       const nodes = nodesByLayer[layer];
       for (const node of nodes) {
         if (!node.block) {
           assert(node.dstNodes.length === 1, "Dummy nodes must have exactly one destination");
         }
+        assert(node.dstNodes.length === node.jointOffsets.length, "must have a joint offset for each destination");
 
         for (const [i, dst] of node.dstNodes.entries()) {
           const x1 = node.pos.x + PORT_START + PORT_SPACING * i;
@@ -529,7 +627,7 @@ export class Graph {
           } else {
             const x2 = dst.pos.x + PORT_START;
             const y2 = dst.pos.y;
-            const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+            const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2 + node.jointOffsets[i];
             // const ym = node.block === null ? (y2 - LAYER_GAP / 2) : (y1 + LAYER_GAP / 2);
             const arrow = downwardArrow(x1, y1, x2, y2, ym, dst.block !== null);
             // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
