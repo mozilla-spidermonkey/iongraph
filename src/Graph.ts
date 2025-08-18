@@ -331,9 +331,7 @@ export class Graph {
           } else {
             if (!loopHeaders.has(currentLoopHeader.number)) {
               // This loop has not been seen before, and it didn't start on
-              // this layer, so track it, inserting to the front of the list so
-              // that iterating later will produce dummy nodes in the correct
-              // order.
+              // this layer, so track it.
               loopDummies.push({ loopID: currentLoopHeader.number, block: block });
             }
           }
