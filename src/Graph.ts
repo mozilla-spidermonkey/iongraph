@@ -228,6 +228,23 @@ export class Graph {
   }
 
   private makeLayoutNodesByLayer(): LayoutNode[][] {
+    function connectNodes(from: LayoutNode, to: LayoutNode) {
+      if (!from.dstNodes.includes(to)) {
+        from.dstNodes.push(to);
+      }
+      if (!to.srcNodes.includes(from)) {
+        to.srcNodes.push(from);
+      }
+    }
+
+    function pruneNode(node: LayoutNode) {
+      for (const dst of node.dstNodes) {
+        const indexOfSelfInDst = dst.srcNodes.indexOf(node);
+        assert(indexOfSelfInDst !== -1);
+        dst.srcNodes.splice(indexOfSelfInDst, 1);
+      }
+    }
+
     let blocksByLayer: MIRBlock[][];
     {
       const blocksByLayerObj: { [layer: number]: MIRBlock[] } = {};
@@ -264,15 +281,6 @@ export class Graph {
             terminatingEdges.push(edge);
             activeEdges.splice(i, 1);
           }
-        }
-      }
-
-      function connectNodes(from: LayoutNode, to: LayoutNode) {
-        if (!from.dstNodes.includes(to)) {
-          from.dstNodes.push(to);
-        }
-        if (!to.srcNodes.includes(from)) {
-          to.srcNodes.push(from);
         }
       }
 
@@ -401,6 +409,37 @@ export class Graph {
       }
     }
 
+    // Prune backedge dummies that don't have a source. This can happen because
+    // we always generate dummy nodes at each level for active loops, but if a
+    // loop doesn't branch back at the end, several dummy nodes will be left
+    // orphaned.
+    {
+      const orphanRoots: DummyNode[] = [];
+      for (const dummy of backedgeDummies(layoutNodesByLayer)) {
+        if (dummy.srcNodes.length === 0) {
+          orphanRoots.push(dummy);
+        }
+      }
+
+      const removedNodes = new Set<LayoutNode>();
+      for (const orphan of orphanRoots) {
+        let current: LayoutNode = orphan;
+        while (current.block === null && current.srcNodes.length === 0) {
+          pruneNode(current);
+          removedNodes.add(current);
+          assert(current.dstNodes.length === 1);
+          current = current.dstNodes[0];
+        }
+      }
+      for (const nodes of layoutNodesByLayer) {
+        for (let i = nodes.length - 1; i >= 0; i--) {
+          if (removedNodes.has(nodes[i])) {
+            nodes.splice(i, 1);
+          }
+        }
+      }
+    }
+
     return layoutNodesByLayer;
   }
 
@@ -438,19 +477,9 @@ export class Graph {
     }
 
     function straightenBackedgeDummies() {
-      function* backedgeDummies() {
-        for (const nodes of layoutNodesByLayer) {
-          for (const node of nodes) {
-            if (node.block === null && node.dstBlock.attributes.includes("backedge")) {
-              yield node;
-            }
-          }
-        }
-      }
-
       // Track max position of backedge dummies
       const backedgeLinePositions = new Map<MIRBlock, number>();
-      for (const dummy of backedgeDummies()) {
+      for (const dummy of backedgeDummies(layoutNodesByLayer)) {
         const backedge = dummy.dstBlock;
         let desiredX = dummy.pos.x;
         if (dummy.dstNodes[0].block) {
@@ -462,7 +491,7 @@ export class Graph {
       }
 
       // Apply positions to backedge dummies
-      for (const dummy of backedgeDummies()) {
+      for (const dummy of backedgeDummies(layoutNodesByLayer)) {
         const backedge = dummy.dstBlock;
         const x = backedgeLinePositions.get(backedge);
         assert(x, `no position for backedge ${backedge.number}`);
@@ -747,6 +776,16 @@ export class Graph {
           el.style.whiteSpace = "nowrap";
           this.container.appendChild(el);
         }
+      }
+    }
+  }
+}
+
+function* backedgeDummies(layoutNodesByLayer: LayoutNode[][]) {
+  for (const nodes of layoutNodesByLayer) {
+    for (const node of nodes) {
+      if (node.block === null && node.dstBlock.attributes.includes("backedge")) {
+        yield node;
       }
     }
   }
