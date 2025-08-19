@@ -18,6 +18,7 @@ export class Tweaks {
     this.container.appendChild(el);
     el.style.display = "flex";
     el.style.alignItems = "center";
+    el.style.justifyContent = "end";
     el.style.gap = "0.5rem";
 
     const safename = tweak.name.replace(/[a-zA-Z0-9]/g, "_");
@@ -32,6 +33,7 @@ export class Tweaks {
     input.type = "number";
     input.value = String(tweak);
     input.id = `tweak-${safename}-input`;
+    input.style.width = "4rem";
     input.addEventListener("input", () => {
       tweak.set(input.valueAsNumber);
     });
@@ -46,9 +48,18 @@ export class Tweaks {
       tweak.set(range.valueAsNumber);
     });
 
+    const reset = document.createElement("button");
+    el.appendChild(reset);
+    reset.innerText = "Reset";
+    reset.disabled = tweak.get() === tweak.initial;
+    reset.addEventListener("click", () => {
+      tweak.set(tweak.initial);
+    });
+
     tweak.onChange(v => {
       input.value = String(v);
       range.value = String(v);
+      reset.disabled = tweak.get() === tweak.initial;
       window.dispatchEvent(new CustomEvent("tweak", { detail: tweak }));
     });
 
@@ -69,6 +80,7 @@ interface _Tweak {
   toString(): string;
   [Symbol.toPrimitive](hint: "number" | "string" | "default"): number | string;
   onChange(func: TweakCallback): void;
+  initial: number;
   name: string;
   min: number;
   max: number;
@@ -135,6 +147,7 @@ export function tweak(name: string, initial: number, options: TweakOptions = {})
       callbacks.push(func);
     },
 
+    initial: initial,
     name: name,
     min: min,
     max: max,

@@ -2,17 +2,16 @@ import type { MIRBlock as _MIRBlock } from "./iongraph";
 import { assert } from "./utils";
 import { tweak } from "./tweak";
 
-const LAYER_GAP = 56;
-const BLOCK_GAP = 24;
-const LOOP_INDENT = 0; // TODO: This is not really useful because edge straightening will make everything look like the child of a loop.
+const LAYER_GAP = tweak("Layer Gap", 56);
+const BLOCK_GAP = tweak("Block Gap", 34);
 
-const PORT_START = 16;
-const PORT_SPACING = 40;
-const ARROW_RADIUS = 10;
-const JOINT_SPACING = 8;
-const HEADER_ARROW_PUSHDOWN = 16;
-const BACKEDGE_GAP = 48;
-const BACKEDGE_ARROW_PUSHOUT = 32;
+const PORT_START = tweak("Port Start", 16);
+const PORT_SPACING = tweak("Port Spacing", 50);
+const ARROW_RADIUS = tweak("Arrow Radius", 10);
+const JOINT_SPACING = tweak("Joint Spacing", 8);
+const HEADER_ARROW_PUSHDOWN = tweak("Header Arrow Pushdown", 16);
+const BACKEDGE_GAP = tweak("Backedge Gap", 48);
+const BACKEDGE_ARROW_PUSHOUT = tweak("Backedge Arrow Pushout", 32);
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
 
 const CONTENT_PADDING = 20;
@@ -68,7 +67,6 @@ interface _LayoutNodeCommon {
   id: number,
   pos: Vec2,
   size: Vec2,
-  indent: number,
   srcNodes: LayoutNode[],
   dstNodes: LayoutNode[],
   jointOffsets: number[],
@@ -302,7 +300,6 @@ export class Graph {
             id: nodeID++,
             pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
             size: { x: 0, y: 0 },
-            indent: 0,
             block: null,
             srcNodes: [],
             dstNodes: [],
@@ -361,7 +358,6 @@ export class Graph {
           id: nodeID++,
           pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
           size: block.size,
-          indent: isTrueLH(block) ? LOOP_INDENT : 0,
           block: block,
           srcNodes: [],
           dstNodes: [],
@@ -382,7 +378,6 @@ export class Graph {
             id: nodeID++,
             pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
             size: { x: 0, y: 0 },
-            indent: 0,
             block: null,
             srcNodes: [],
             dstNodes: [],
@@ -490,7 +485,7 @@ export class Graph {
           const loopHeader = node.block.loopID !== null ? asLH(this.byNum[node.block.loopID]) : null;
           if (loopHeader) {
             const loopHeaderNode = loopHeader.layoutNode;
-            node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.indent);
+            node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x);
           }
         }
       }
