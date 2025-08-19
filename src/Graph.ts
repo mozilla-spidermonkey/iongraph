@@ -1,14 +1,14 @@
 import type { MIRBlock as _MIRBlock } from "./iongraph";
 import { assert } from "./utils";
 
-const LAYER_GAP = 36;
+const LAYER_GAP = 48;
 const BLOCK_GAP = 24;
 const LOOP_INDENT = 0; // TODO: This is not really useful because edge straightening will make everything look like the child of a loop.
 
 const PORT_START = 16;
 const PORT_SPACING = 40;
 const ARROW_RADIUS = 8;
-const JOINT_SPACING = 3;
+const JOINT_SPACING = 6;
 const HEADER_ARROW_PUSHDOWN = 16;
 const BACKEDGE_GAP = 48;
 const BACKEDGE_ARROW_PUSHOUT = 32;
@@ -634,17 +634,14 @@ export class Graph {
       }
 
       // Use track info to apply joint offsets to nodes for rendering.
-      for (const [i, track] of rightwardTracks.entries()) {
+      // We
+      const tracksHeight = Math.max(0, rightwardTracks.length + leftwardTracks.length - 1) * JOINT_SPACING;
+      let trackOffset = -tracksHeight / 2;
+      for (const track of [...rightwardTracks.reverse(), ...leftwardTracks]) {
         for (const joint of track) {
-          assert(joint.x2 >= joint.x1, `expected rightward edge from ${joint.src.id} (${joint.src.block?.number ?? "dummy"}) to ${joint.dst.id} (${joint.dst.block?.number ?? "dummy"}): x1 = ${joint.x1}, x2 = ${joint.x2}`, true);
-          joint.src.jointOffsets[joint.srcPort] = -i * JOINT_SPACING;
+          joint.src.jointOffsets[joint.srcPort] = trackOffset;
         }
-      }
-      for (const [i, track] of leftwardTracks.entries()) {
-        for (const joint of track) {
-          assert(joint.x2 < joint.x1, `expected leftward edge from ${joint.src.id} (${joint.src.block?.number ?? "dummy"}) to ${joint.dst.id} (${joint.dst.block?.number ?? "dummy"}): x1 = ${joint.x1}, x2 = ${joint.x2}`, true);
-          joint.src.jointOffsets[joint.srcPort] = (i + 1) * JOINT_SPACING;
-        }
+        trackOffset += JOINT_SPACING;
       }
     }
   }
