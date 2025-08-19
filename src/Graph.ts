@@ -2,17 +2,18 @@ import type { MIRBlock as _MIRBlock } from "./iongraph";
 import { assert } from "./utils";
 import { tweak } from "./tweak";
 
-const LAYER_GAP = tweak("Layer Gap", 56);
-const BLOCK_GAP = tweak("Block Gap", 34);
+const LAYER_GAP = tweak("Layer Gap", 70);
+const BLOCK_GAP = tweak("Block Gap", 44);
 
 const PORT_START = tweak("Port Start", 16);
-const PORT_SPACING = tweak("Port Spacing", 50);
-const ARROW_RADIUS = tweak("Arrow Radius", 10);
+const PORT_SPACING = tweak("Port Spacing", 60);
+const ARROW_RADIUS = tweak("Arrow Radius", 20);
 const JOINT_SPACING = tweak("Joint Spacing", 8);
 const HEADER_ARROW_PUSHDOWN = tweak("Header Arrow Pushdown", 16);
 const BACKEDGE_GAP = tweak("Backedge Gap", 48);
 const BACKEDGE_ARROW_PUSHOUT = tweak("Backedge Arrow Pushout", 32);
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
+const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 4, { min: 0, max: 10 });
 
 const CONTENT_PADDING = 20;
 
@@ -601,7 +602,7 @@ export class Graph {
     straightenChildren();
     pushIntoLoops();
     straightenBackedgeDummies();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < NEARLY_STRAIGHT_ITERATIONS; i++) {
       straightenNearlyStraightEdgesUp();
       straightenNearlyStraightEdgesDown();
     }
