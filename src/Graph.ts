@@ -600,37 +600,47 @@ export class Graph {
         }
       });
 
-      // Greedily sort joints into "tracks" based on whether they overlap horizontally with each other.
+      // Greedily sort joints into "tracks" based on whether they overlap
+      // horizontally with each other. We walk the tracks from the outside in
+      // and place the joint in the innermost possible track, stopping if we
+      // ever overlap with any other joint.
       const rightwardTracks: Joint[][] = [];
       const leftwardTracks: Joint[][] = [];
       nextJoint:
       for (const joint of joints) {
         const trackSet = joint.x2 - joint.x1 >= 0 ? rightwardTracks : leftwardTracks;
-        for (const track of trackSet) {
-          let roomInTrack = true;
+        let lastValidTrack: Joint[] | null = null;
+        for (let i = trackSet.length - 1; i >= 0; i--) {
+          const track = trackSet[i];
+          let overlapsWithAnyInThisTrack = false;
           for (const otherJoint of track) {
             if (joint.dst === otherJoint.dst) {
               // Assign the joint to this track to merge arrows
-              break;
+              track.push(joint);
+              continue nextJoint;
             }
 
             const al = Math.min(joint.x1, joint.x2), ar = Math.max(joint.x1, joint.x2);
             const bl = Math.min(otherJoint.x1, otherJoint.x2), br = Math.max(otherJoint.x1, otherJoint.x2);
             const overlaps = ar > bl && al < br;
             if (overlaps) {
-              roomInTrack = false;
+              overlapsWithAnyInThisTrack = true;
               break;
             }
           }
 
-          if (roomInTrack) {
-            track.push(joint);
-            continue nextJoint;
+          if (overlapsWithAnyInThisTrack) {
+            break;
+          } else {
+            lastValidTrack = track;
           }
         }
 
-        // If we get here, there was no room in any track, so make a new track with this joint.
-        trackSet.push([joint]);
+        if (lastValidTrack) {
+          lastValidTrack.push(joint);
+        } else {
+          trackSet.push([joint]);
+        }
       }
 
       // Use track info to apply joint offsets to nodes for rendering.
