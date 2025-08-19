@@ -278,7 +278,7 @@ export class Graph {
         for (let i = activeEdges.length - 1; i >= 0; i--) {
           const edge = activeEdges[i];
           if (edge.dstBlock === block) {
-            terminatingEdges.push(edge);
+            terminatingEdges.unshift(edge);
             activeEdges.splice(i, 1);
           }
         }
