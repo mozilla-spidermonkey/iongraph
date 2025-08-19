@@ -1,17 +1,19 @@
 import type { MIRBlock as _MIRBlock } from "./iongraph";
 import { assert } from "./utils";
+import { tweak } from "./tweak";
 
-const LAYER_GAP = 48;
+const LAYER_GAP = 56;
 const BLOCK_GAP = 24;
 const LOOP_INDENT = 0; // TODO: This is not really useful because edge straightening will make everything look like the child of a loop.
 
 const PORT_START = 16;
 const PORT_SPACING = 40;
-const ARROW_RADIUS = 8;
-const JOINT_SPACING = 6;
+const ARROW_RADIUS = 10;
+const JOINT_SPACING = 8;
 const HEADER_ARROW_PUSHDOWN = 16;
 const BACKEDGE_GAP = 48;
 const BACKEDGE_ARROW_PUSHOUT = 32;
+const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
 
 const CONTENT_PADDING = 20;
 
@@ -464,7 +466,7 @@ export class Graph {
   }
 
   private straightenEdges(layoutNodesByLayer: LayoutNode[][]) {
-    function pushNeighbors(nodes: LayoutNode[]) {
+    const pushNeighbors = (nodes: LayoutNode[]) => {
       for (let i = 0; i < nodes.length - 1; i++) {
         const node = nodes[i];
         const neighbor = nodes[i + 1];
@@ -472,11 +474,29 @@ export class Graph {
         const firstNonDummy = node.block === null && neighbor.block !== null;
         const nodeRightPlusPadding = node.pos.x + node.size.x + (firstNonDummy ? PORT_START : 0) + BLOCK_GAP;
         const loopBackedgePosition = node.block?.attributes.includes("loopheader") ? node.pos.x + node.size.x + BACKEDGE_GAP : 0;
-        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding, loopBackedgePosition);
+        const backedgeNeighborPosition = node.block?.attributes.includes("backedge") ? node.pos.x + node.size.x + BACKEDGE_ARROW_PUSHOUT + BLOCK_GAP + PORT_START : 0;
+        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding, loopBackedgePosition, backedgeNeighborPosition);
       }
-    }
+    };
 
-    function straightenBackedgeDummies() {
+    // Push nodes to the right so they fit inside their loop
+    const pushIntoLoops = () => {
+      for (const nodes of layoutNodesByLayer) {
+        for (const node of nodes) {
+          if (node.block === null) {
+            continue;
+          }
+
+          const loopHeader = node.block.loopID !== null ? asLH(this.byNum[node.block.loopID]) : null;
+          if (loopHeader) {
+            const loopHeaderNode = loopHeader.layoutNode;
+            node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.indent);
+          }
+        }
+      }
+    };
+
+    const straightenBackedgeDummies = () => {
       // Track max position of backedge dummies
       const backedgeLinePositions = new Map<MIRBlock, number>();
       for (const dummy of backedgeDummies(layoutNodesByLayer)) {
@@ -497,25 +517,13 @@ export class Graph {
         assert(x, `no position for backedge ${backedge.number}`);
         dummy.pos.x = x;
       }
-    }
+    };
 
+    // Walk down the layers, pulling children to the right to line up with
+    // their parents.
     const straightenChildren = () => {
-      // Walk down the layers, straightening things out
       for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
         const nodes = layoutNodesByLayer[layer];
-
-        // Push nodes to the right so they fit inside their loop
-        for (const node of nodes) {
-          if (node.block === null) {
-            continue;
-          }
-
-          const loopHeader = node.block.loopID !== null ? asLH(this.byNum[node.block.loopID]) : null;
-          if (loopHeader) {
-            const loopHeaderNode = loopHeader.layoutNode;
-            node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x + loopHeaderNode.indent);
-          }
-        }
 
         // Push nodes to the right if they are too close together
         pushNeighbors(nodes);
@@ -543,9 +551,65 @@ export class Graph {
           }
         }
       }
-    }
+    };
+
+    // Walk up the layers, straightening out edges that are nearly straight.
+    const straightenNearlyStraightEdgesUp = () => {
+      for (let layer = layoutNodesByLayer.length - 1; layer >= 0; layer--) {
+        const nodes = layoutNodesByLayer[layer];
+
+        pushNeighbors(nodes);
+
+        for (const node of nodes) {
+          for (const src of node.srcNodes) {
+            if (src.block !== null) {
+              // Only do this to dummies (for now?)
+              continue;
+            }
+
+            const wiggle = Math.abs(src.pos.x - node.pos.x);
+            if (wiggle <= NEARLY_STRAIGHT) {
+              src.pos.x = Math.max(src.pos.x, node.pos.x);
+              node.pos.x = Math.max(src.pos.x, node.pos.x);
+            }
+          }
+        }
+      }
+    };
+
+    // Walk down the layers, straightening out edges that are nearly straight.
+    const straightenNearlyStraightEdgesDown = () => {
+      for (let layer = 0; layer < layoutNodesByLayer.length; layer++) {
+        const nodes = layoutNodesByLayer[layer];
+
+        pushNeighbors(nodes);
+
+        for (const node of nodes) {
+          if (node.dstNodes.length === 0) {
+            continue;
+          }
+          const dst = node.dstNodes[0];
+          if (dst.block !== null) {
+            // Only do this to dummies (for now?)
+            continue;
+          }
+
+          const wiggle = Math.abs(dst.pos.x - node.pos.x);
+          if (wiggle <= NEARLY_STRAIGHT) {
+            dst.pos.x = Math.max(dst.pos.x, node.pos.x);
+            node.pos.x = Math.max(dst.pos.x, node.pos.x);
+          }
+        }
+      }
+    };
 
     straightenChildren();
+    pushIntoLoops();
+    straightenBackedgeDummies();
+    for (let i = 0; i < 4; i++) {
+      straightenNearlyStraightEdgesUp();
+      straightenNearlyStraightEdgesDown();
+    }
     straightenBackedgeDummies();
     for (const nodes of layoutNodesByLayer) {
       pushNeighbors(nodes);
@@ -562,10 +626,8 @@ export class Graph {
     }
 
     for (const nodes of layoutNodesByLayer) {
-      // Get all joints into a list, and sort by the following criteria:
-      // - Rightward edges from left to right
-      // - Leftward edges from right to left
-      // Sorting of leftward vs. rightward is irrelevant.
+      // Get all joints into a list, and sort them left to right by their
+      // starting coordinate. This produces the nicest visual nesting.
       const joints: Joint[] = [];
       for (const node of nodes) {
         node.jointOffsets = new Array(node.dstNodes.length).fill(0);
@@ -584,21 +646,7 @@ export class Graph {
           joints.push({ x1, x2, src: node, srcPort, dst });
         }
       }
-      joints.sort((a, b) => {
-        const aRightward = a.x2 - a.x1 >= 0;
-        const bRightward = b.x2 - b.x1 >= 0;
-        if (aRightward !== bRightward) {
-          return 1;
-        }
-
-        if (aRightward) {
-          // Sort rightward edges left to right by x1
-          return a.x1 - b.x1;
-        } else {
-          // Sort leftward edges right to left by x1
-          return b.x1 - a.x1;
-        }
-      });
+      joints.sort((a, b) => a.x1 - b.x1);
 
       // Greedily sort joints into "tracks" based on whether they overlap
       // horizontally with each other. We walk the tracks from the outside in

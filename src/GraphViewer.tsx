@@ -67,9 +67,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     graphDiv.current.style.transform = `translate(${clampedTx}px, ${clampedTy}px) scale(${zoom.current})`;
   }
 
-  useEffect(() => {
-    const pass: Pass | undefined = func.passes[passNumber];
-
+  function redrawGraph(pass: Pass) {
     if (graphDiv.current) {
       graphDiv.current.innerHTML = "";
       graph.current = null;
@@ -85,10 +83,28 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         }
       }
     }
+  }
+
+  // Redraw graph when the func or pass changes, and hook it up to the
+  // tweak system.
+  useEffect(() => {
+    const pass: Pass | undefined = func.passes[passNumber];
+    if (pass) {
+      redrawGraph(pass);
+    }
+
+    const handler = () => {
+      redrawGraph(pass);
+    };
+    window.addEventListener("tweak", handler);
+    return () => {
+      window.removeEventListener("tweak", handler);
+    };
   }, [func, passNumber]);
 
+  // Update pan and zoom on every React update
   useEffect(() => {
-    updatePanAndZoom(); // make sure we do this on every React update
+    updatePanAndZoom();
   });
 
   return <div className="ig-absolute ig-absolute-fill ig-flex">
