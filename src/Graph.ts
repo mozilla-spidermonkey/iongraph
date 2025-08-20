@@ -2,6 +2,8 @@ import type { MIRBlock as _MIRBlock } from "./iongraph";
 import { assert } from "./utils";
 import { tweak } from "./tweak";
 
+const DEBUG = tweak("Debug?", 0, { min: 0, max: 1 });
+
 const LAYER_GAP = tweak("Layer Gap", 70);
 const BLOCK_GAP = tweak("Block Gap", 44);
 
@@ -352,6 +354,7 @@ export class Graph {
       }
 
       // Create real nodes for each block on the layer.
+      const backedgeEdges: [MIRBlock, MIRBlock][] = [];
       for (const block of blocks) {
         // Create new layout node for block
         const node: BlockNode = {
@@ -395,14 +398,19 @@ export class Graph {
         } else {
           for (const succ of block.succs) {
             if (succ.attributes.includes("backedge")) {
-              const backedgeDummy = latestDummyForBackedge.get(succ);
-              assert(backedgeDummy);
-              connectNodes(block.layoutNode, backedgeDummy);
+              // Track this edge to be added after all the backedge dummies on
+              // this row have been added.
+              backedgeEdges.push([block, succ]);
             } else {
               activeEdges.push({ src: node, dstBlock: succ });
             }
           }
         }
+      }
+      for (const [block, backedge] of backedgeEdges) {
+        const backedgeDummy = latestDummyForBackedge.get(backedge);
+        assert(backedgeDummy);
+        connectNodes(block.layoutNode, backedgeDummy);
       }
     }
 
@@ -811,11 +819,11 @@ export class Graph {
     }
 
     // Render dummy nodes
-    if (false) {
+    if (+DEBUG) {
       for (const nodes of nodesByLayer) {
         for (const node of nodes) {
           const el = document.createElement("div");
-          el.innerText = `${node.id} -> ${node.dstNodes.map(n => n.id)}`;
+          el.innerHTML = `${node.id}<br>&lt;- ${node.srcNodes.map(n => n.id)}<br>-&gt; ${node.dstNodes.map(n => n.id)}`;
           el.style.position = "absolute";
           el.style.border = "1px solid black";
           // el.style.borderWidth = "1px 0 0 1px";
