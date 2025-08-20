@@ -18,6 +18,8 @@ const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 4, { min:
 
 const CONTENT_PADDING = 20;
 
+const EDGE_STRAIGHTENING_PASSES = tweak("Edge Straightening Passes", 20, { min: 0, max: 20 });
+
 interface Vec2 {
   x: number,
   y: number,
@@ -602,18 +604,38 @@ export class Graph {
       }
     };
 
-    // The order of these passes is arbitrary. I just play with it until I like
-    // the result.
-    straightenChildren();
-    pushIntoLoops();
-    straightenBackedgeDummies();
-    for (let i = 0; i < NEARLY_STRAIGHT_ITERATIONS; i++) {
-      straightenNearlyStraightEdgesUp();
-      straightenNearlyStraightEdgesDown();
+    function repeat<T>(a: T[], n: number): T[] {
+      const result: T[] = [];
+      for (let i = 0; i < n; i++) {
+        for (const item of a) {
+          result.push(item);
+        }
+      }
+      return result;
     }
-    straightenBackedgeDummies();
-    for (const nodes of layoutNodesByLayer) {
-      pushNeighbors(nodes);
+
+    // The order of these passes is arbitrary. I just play with it until I like
+    // the result. I have them in this wacky structure because I want to be
+    // able to use my debug scrubber.
+    const passes = [
+      straightenChildren,
+      pushIntoLoops,
+      straightenBackedgeDummies,
+      ...repeat([
+        straightenNearlyStraightEdgesUp,
+        straightenNearlyStraightEdgesDown,
+      ], NEARLY_STRAIGHT_ITERATIONS),
+      straightenBackedgeDummies,
+      () => {
+        for (const nodes of layoutNodesByLayer) {
+          pushNeighbors(nodes);
+        }
+      },
+    ];
+    for (const [i, pass] of passes.entries()) {
+      if (i < EDGE_STRAIGHTENING_PASSES) {
+        pass();
+      }
     }
   }
 
