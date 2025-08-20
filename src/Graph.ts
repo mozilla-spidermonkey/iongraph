@@ -469,6 +469,7 @@ export class Graph {
   }
 
   private straightenEdges(layoutNodesByLayer: LayoutNode[][]) {
+    // Push nodes to the right if they are too close together.
     const pushNeighbors = (nodes: LayoutNode[]) => {
       for (let i = 0; i < nodes.length - 1; i++) {
         const node = nodes[i];
@@ -481,7 +482,7 @@ export class Graph {
       }
     };
 
-    // Push nodes to the right so they fit inside their loop
+    // Push nodes to the right so they fit inside their loop.
     const pushIntoLoops = () => {
       for (const nodes of layoutNodesByLayer) {
         for (const node of nodes) {
@@ -498,6 +499,8 @@ export class Graph {
       }
     };
 
+    // Straighten runs of backedge dummies so that there is a clean line back
+    // to the top for each loop.
     const straightenBackedgeDummies = () => {
       // Track max position of backedge dummies
       const backedgeLinePositions = new Map<MIRBlock, number>();
@@ -527,28 +530,21 @@ export class Graph {
       for (let layer = 0; layer < layoutNodesByLayer.length - 1; layer++) {
         const nodes = layoutNodesByLayer[layer];
 
-        // Push nodes to the right if they are too close together
         pushNeighbors(nodes);
 
-        // Walk this layer and the next, shifting nodes to the right to line
-        // up the edges.
-        let nextCursor = 0;
+        // If a node has been shifted, we must never shift any node to its
+        // left. This preserves stable graph layout and just avoids lots of
+        // jank. We also only shift a child based on its first parent, because
+        // otherwide nodes end up being pulled too far to the right.
+        let lastShifted = -1;
         for (const node of nodes) {
           for (const [srcPort, dst] of node.dstNodes.entries()) {
-            let toShift: LayoutNode | null = null;
-            for (let i = nextCursor; i < layoutNodesByLayer[layer + 1].length; i++) {
-              const nextNode = layoutNodesByLayer[layer + 1][i];
-              if (nextNode.srcNodes[0] === node) {
-                toShift = nextNode;
-                nextCursor = i + 1;
-                break;
-              }
-            }
-
-            if (toShift) {
+            let dstIndexInNextLayer = layoutNodesByLayer[layer + 1].indexOf(dst);
+            if (dstIndexInNextLayer > lastShifted && dst.srcNodes[0] === node) {
               const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
               const dstPortOffset = PORT_START;
-              toShift.pos.x = Math.max(toShift.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+              dst.pos.x = Math.max(dst.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
+              lastShifted = dstIndexInNextLayer;
             }
           }
         }
@@ -565,7 +561,8 @@ export class Graph {
         for (const node of nodes) {
           for (const src of node.srcNodes) {
             if (src.block !== null) {
-              // Only do this to dummies (for now?)
+              // Only do this to dummies, because straightenChildren takes care
+              // of block-to-block edges.
               continue;
             }
 
@@ -579,7 +576,7 @@ export class Graph {
       }
     };
 
-    // Walk down the layers, straightening out edges that are nearly straight.
+    // Ditto, but walking down instead of up.
     const straightenNearlyStraightEdgesDown = () => {
       for (let layer = 0; layer < layoutNodesByLayer.length; layer++) {
         const nodes = layoutNodesByLayer[layer];
@@ -592,7 +589,7 @@ export class Graph {
           }
           const dst = node.dstNodes[0];
           if (dst.block !== null) {
-            // Only do this to dummies (for now?)
+            // Only do this to dummies for the reasons above.
             continue;
           }
 
@@ -605,6 +602,8 @@ export class Graph {
       }
     };
 
+    // The order of these passes is arbitrary. I just play with it until I like
+    // the result.
     straightenChildren();
     pushIntoLoops();
     straightenBackedgeDummies();
