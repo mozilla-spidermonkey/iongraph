@@ -626,6 +626,7 @@ export class Graph {
         straightenNearlyStraightEdgesDown,
       ], NEARLY_STRAIGHT_ITERATIONS),
       straightenBackedgeDummies,
+      straightenChildren,
       () => {
         for (const nodes of layoutNodesByLayer) {
           pushNeighbors(nodes);
