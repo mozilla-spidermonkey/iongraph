@@ -7,10 +7,9 @@ const BLOCK_GAP = tweak("Block Gap", 44);
 
 const PORT_START = tweak("Port Start", 16);
 const PORT_SPACING = tweak("Port Spacing", 60);
-const ARROW_RADIUS = tweak("Arrow Radius", 20);
+const ARROW_RADIUS = tweak("Arrow Radius", 12);
 const JOINT_SPACING = tweak("Joint Spacing", 8);
 const HEADER_ARROW_PUSHDOWN = tweak("Header Arrow Pushdown", 16);
-const BACKEDGE_GAP = tweak("Backedge Gap", 48);
 const BACKEDGE_ARROW_PUSHOUT = tweak("Backedge Arrow Pushout", 32);
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
 const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 4, { min: 0, max: 10 });
@@ -469,9 +468,8 @@ export class Graph {
 
         const firstNonDummy = node.block === null && neighbor.block !== null;
         const nodeRightPlusPadding = node.pos.x + node.size.x + (firstNonDummy ? PORT_START : 0) + BLOCK_GAP;
-        const loopBackedgePosition = node.block?.attributes.includes("loopheader") ? node.pos.x + node.size.x + BACKEDGE_GAP : 0;
         const backedgeNeighborPosition = node.block?.attributes.includes("backedge") ? node.pos.x + node.size.x + BACKEDGE_ARROW_PUSHOUT + BLOCK_GAP + PORT_START : 0;
-        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding, loopBackedgePosition, backedgeNeighborPosition);
+        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding, backedgeNeighborPosition);
       }
     };
 
