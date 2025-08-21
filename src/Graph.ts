@@ -752,18 +752,18 @@ export class Graph {
       row.setAttribute("data-mir-op-id", `${ins.id}`);
 
       const num = document.createElement("td");
-      row.appendChild(num);
       num.classList.add("ig-op-num");
       num.innerText = String(ins.id);
+      row.appendChild(num);
 
       const opcode = document.createElement("td");
-      row.appendChild(opcode);
       opcode.innerText = prettyOpcode;
+      row.appendChild(opcode);
 
       const type = document.createElement("td");
-      row.appendChild(type);
       type.classList.add("ig-op-type");
       type.innerText = ins.type === "None" ? "" : ins.type;
+      row.appendChild(type);
 
       return row;
     }
@@ -777,12 +777,12 @@ export class Graph {
       row.setAttribute("data-lir-op-id", `${ins.id}`);
 
       const num = document.createElement("td");
-      row.appendChild(num);
       num.innerText = String(ins.id);
+      row.appendChild(num);
 
       const opcode = document.createElement("td");
-      row.appendChild(opcode);
       opcode.innerText = prettyOpcode;
+      row.appendChild(opcode);
 
       const type = document.createElement("td");
       row.appendChild(type);
@@ -807,15 +807,14 @@ export class Graph {
       desc = " (split edge)";
     }
     const header = document.createElement("h2");
-    el.appendChild(header);
     header.innerText = `Block ${block.number}${desc}`;
+    el.appendChild(header);
 
     const insnsContainer = document.createElement("div");
-    el.appendChild(insnsContainer);
     insnsContainer.classList.add("ig-instructions");
+    el.appendChild(insnsContainer);
 
     const insns = document.createElement("table");
-    insnsContainer.appendChild(insns);
     insns.innerHTML = `
       <colgroup>
         <col style="width: 1px">
@@ -832,9 +831,7 @@ export class Graph {
         insns.appendChild(mirOpToHTML(ins));
       }
     }
-
-    el.style.width = `${el.clientWidth}px`;
-    el.style.height = `${el.clientHeight}px`;
+    insnsContainer.appendChild(insns);
 
     return el;
   }
