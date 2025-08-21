@@ -18,7 +18,7 @@ const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 4, { min:
 
 const CONTENT_PADDING = 20;
 
-const EDGE_STRAIGHTENING_PASSES = tweak("Edge Straightening Passes", 20, { min: 0, max: 20 });
+const EDGE_STRAIGHTENING_PASSES = tweak("Edge Straightening Passes", 40, { min: 0, max: 40 });
 
 interface Vec2 {
   x: number,
@@ -509,26 +509,24 @@ export class Graph {
       }
     };
 
-    // Straighten runs of backedge dummies so that there is a clean line back
-    // to the top for each loop.
-    const straightenBackedgeDummies = () => {
+    const straightenDummyRuns = () => {
       // Track max position of backedge dummies
-      const backedgeLinePositions = new Map<MIRBlock, number>();
-      for (const dummy of backedgeDummies(layoutNodesByLayer)) {
-        const backedge = dummy.dstBlock;
+      const dummyLinePositions = new Map<MIRBlock, number>();
+      for (const dummy of dummies(layoutNodesByLayer)) {
+        const dst = dummy.dstBlock;
         let desiredX = dummy.pos.x;
-        if (dummy.dstNodes[0].block) {
+        if (dummy.dstNodes[0].block && dst.attributes.includes("backedge")) {
           // Direct input to backedge
-          const bn = backedge.layoutNode;
-          desiredX = bn.pos.x + bn.size.x + BACKEDGE_ARROW_PUSHOUT;
+          const backedgeNode = dst.layoutNode;
+          desiredX = backedgeNode.pos.x + backedgeNode.size.x + BACKEDGE_ARROW_PUSHOUT;
         }
-        backedgeLinePositions.set(backedge, Math.max(backedgeLinePositions.get(backedge) ?? 0, desiredX));
+        dummyLinePositions.set(dst, Math.max(dummyLinePositions.get(dst) ?? 0, desiredX));
       }
 
-      // Apply positions to backedge dummies
-      for (const dummy of backedgeDummies(layoutNodesByLayer)) {
+      // Apply positions to dummies
+      for (const dummy of dummies(layoutNodesByLayer)) {
         const backedge = dummy.dstBlock;
-        const x = backedgeLinePositions.get(backedge);
+        const x = dummyLinePositions.get(backedge);
         assert(x, `no position for backedge ${backedge.number}`);
         dummy.pos.x = x;
       }
@@ -628,12 +626,12 @@ export class Graph {
     const passes = [
       straightenChildren,
       pushIntoLoops,
-      straightenBackedgeDummies,
+      straightenDummyRuns,
       ...repeat([
         straightenNearlyStraightEdgesUp,
         straightenNearlyStraightEdgesDown,
       ], NEARLY_STRAIGHT_ITERATIONS),
-      straightenBackedgeDummies,
+      straightenDummyRuns,
       straightenChildren,
       () => {
         for (const nodes of layoutNodesByLayer) {
@@ -943,6 +941,16 @@ export class Graph {
           el.style.whiteSpace = "nowrap";
           this.container.appendChild(el);
         }
+      }
+    }
+  }
+}
+
+function* dummies(layoutNodesByLayer: LayoutNode[][]) {
+  for (const nodes of layoutNodesByLayer) {
+    for (const node of nodes) {
+      if (node.block === null) {
+        yield node;
       }
     }
   }
