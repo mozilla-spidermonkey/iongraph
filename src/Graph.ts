@@ -737,41 +737,52 @@ export class Graph {
   }
 
   private renderBlock(block: MIRBlock): HTMLElement {
-    function mirOpToHTML(ins: MIRInstruction): HTMLElement[] {
+    function mirOpToHTML(ins: MIRInstruction): HTMLElement {
       const prettyOpcode = ins.opcode
         .replace('->', '→')
         .replace('<-', '←');
 
-      const num = document.createElement("div");
+      const row = document.createElement("tr");
+      row.classList.add(...ins.attributes.map(att => `ig-ins-att-${att}`));
+      row.setAttribute("data-mir-op-id", `${ins.id}`);
+
+      const num = document.createElement("td");
+      row.appendChild(num);
       num.classList.add("ig-op-num");
       num.innerText = String(ins.id);
-      const opcode = document.createElement("div");
+
+      const opcode = document.createElement("td");
+      row.appendChild(opcode);
       opcode.innerText = prettyOpcode;
-      const type = document.createElement("div");
+
+      const type = document.createElement("td");
+      row.appendChild(type);
       type.classList.add("ig-op-type");
       type.innerText = ins.type === "None" ? "" : ins.type;
 
-      const els = [num, opcode, type];
-      for (const el of els) {
-        el.classList.add(...ins.attributes.map(att => `ig-ins-att-${att}`));
-      }
-      return els;
+      return row;
     }
 
-    function lirOpToHTML(ins: LIRInstruction): HTMLElement[] {
+    function lirOpToHTML(ins: LIRInstruction): HTMLElement {
       const prettyOpcode = ins.opcode
         .replace('->', '→')
-        .replace('<-', '←')
-        .replace("<", "&lt;")
-        .replace(">", "&gt;");
+        .replace('<-', '←');
 
-      const num = document.createElement("div");
+      const row = document.createElement("tr");
+      row.setAttribute("data-lir-op-id", `${ins.id}`);
+
+      const num = document.createElement("td");
+      row.appendChild(num);
       num.innerText = String(ins.id);
-      const opcode = document.createElement("div");
-      opcode.innerText = prettyOpcode;
-      const type = document.createElement("div");
 
-      return [num, opcode, type];
+      const opcode = document.createElement("td");
+      row.appendChild(opcode);
+      opcode.innerText = prettyOpcode;
+
+      const type = document.createElement("td");
+      row.appendChild(type);
+
+      return row;
     }
 
     const el = document.createElement("div");
@@ -780,6 +791,7 @@ export class Graph {
     for (const att of block.attributes) {
       el.classList.add(`ig-block-att-${att}`);
     }
+    el.setAttribute("data-block-number", `${block.number}`);
 
     let desc = "";
     if (block.attributes.includes("loopheader")) {
@@ -793,24 +805,30 @@ export class Graph {
     el.appendChild(header);
     header.innerText = `Block ${block.number}${desc}`;
 
-    const insns = document.createElement("div");
-    el.appendChild(insns);
-    insns.classList.add("ig-instructions");
+    const insnsContainer = document.createElement("div");
+    el.appendChild(insnsContainer);
+    insnsContainer.classList.add("ig-instructions");
+
+    const insns = document.createElement("table");
+    insnsContainer.appendChild(insns);
+    insns.innerHTML = `
+      <colgroup>
+        <col style="width: 1px">
+        <col style="width: auto">
+        <col style="width: auto">
+      </colgroup>
+    `;
     if (block.lir) {
       for (const ins of block.lir.instructions) {
-        for (const child of lirOpToHTML(ins)) {
-          insns.appendChild(child);
-        }
+        insns.appendChild(lirOpToHTML(ins));
       }
     } else {
       for (const ins of block.instructions) {
-        for (const child of mirOpToHTML(ins)) {
-          insns.appendChild(child);
-        }
+        insns.appendChild(mirOpToHTML(ins));
       }
     }
 
-    el.style.width = `${el.clientWidth + 10}px`; // fudge factor because text sucks
+    el.style.width = `${el.clientWidth}px`;
     el.style.height = `${el.clientHeight}px`;
 
     return el;

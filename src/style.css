@@ -309,9 +309,16 @@ a.ig-link-normal {
     padding: 0.5rem 1rem;
     border: 1px solid black;
     border-width: 0 1px 1px;
-    display: grid;
-    grid-template-columns: max-content auto auto;
-    gap: 0 0.5rem;
+
+    table {
+      width: calc(100% + 1rem);
+      border-spacing: 0.5rem 0;
+      margin: 0 -0.5rem;
+    }
+
+    td {
+      white-space: nowrap;
+    }
   }
 
   .ig-op-num {
