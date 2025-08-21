@@ -738,13 +738,20 @@ export class Graph {
 
   private renderBlock(block: MIRBlock): HTMLElement {
     function mirOpToHTML(ins: MIRInstruction): HTMLElement[] {
+      const prettyOpcode = ins.opcode
+        .replace('->', '→')
+        .replace('<-', '←');
+
       const num = document.createElement("div");
       num.classList.add("ig-op-num");
       num.innerText = String(ins.id);
       const opcode = document.createElement("div");
-      opcode.innerText = ins.opcode;
+      opcode.innerText = prettyOpcode;
+      const type = document.createElement("div");
+      type.classList.add("ig-op-type");
+      type.innerText = ins.type === "None" ? "" : ins.type;
 
-      const els = [num, opcode];
+      const els = [num, opcode, type];
       for (const el of els) {
         el.classList.add(...ins.attributes.map(att => `ig-ins-att-${att}`));
       }
@@ -752,14 +759,19 @@ export class Graph {
     }
 
     function lirOpToHTML(ins: LIRInstruction): HTMLElement[] {
-      let safeOpcode = ins.opcode;
-      safeOpcode = safeOpcode.replace("<", "&lt;");
-      safeOpcode = safeOpcode.replace(">", "&gt;")
+      const prettyOpcode = ins.opcode
+        .replace('->', '→')
+        .replace('<-', '←')
+        .replace("<", "&lt;")
+        .replace(">", "&gt;");
+
       const num = document.createElement("div");
       num.innerText = String(ins.id);
       const opcode = document.createElement("div");
-      opcode.innerText = safeOpcode;
-      return [num, opcode];
+      opcode.innerText = prettyOpcode;
+      const type = document.createElement("div");
+
+      return [num, opcode, type];
     }
 
     const el = document.createElement("div");

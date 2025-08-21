@@ -310,11 +310,15 @@ a.ig-link-normal {
     border: 1px solid black;
     border-width: 0 1px 1px;
     display: grid;
-    grid-template-columns: max-content 1fr;
+    grid-template-columns: max-content auto auto;
     gap: 0 0.5rem;
   }
 
   .ig-op-num {
+    text-align: right;
+  }
+
+  .ig-op-type {
     text-align: right;
   }
 }
