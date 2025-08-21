@@ -4,13 +4,13 @@ import { tweak } from "./tweak";
 
 const DEBUG = tweak("Debug?", 0, { min: 0, max: 1 });
 
-const LAYER_GAP = tweak("Layer Gap", 70);
 const BLOCK_GAP = tweak("Block Gap", 44);
 
 const PORT_START = tweak("Port Start", 16);
 const PORT_SPACING = tweak("Port Spacing", 60);
 const ARROW_RADIUS = tweak("Arrow Radius", 12);
-const JOINT_SPACING = tweak("Joint Spacing", 8);
+const TRACK_PADDING = tweak("Track Padding", 36);
+const JOINT_SPACING = tweak("Joint Spacing", 16);
 const HEADER_ARROW_PUSHDOWN = tweak("Header Arrow Pushdown", 16);
 const BACKEDGE_ARROW_PUSHOUT = tweak("Backedge Arrow Pushout", 32);
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
@@ -148,11 +148,11 @@ export class Graph {
       }
     }
 
-    const [nodesByLayer, layerHeights] = this.layout();
-    this.render(nodesByLayer, layerHeights);
+    const [nodesByLayer, layerHeights, trackHeights] = this.layout();
+    this.render(nodesByLayer, layerHeights, trackHeights);
   }
 
-  private layout(): [LayoutNode[][], number[]] {
+  private layout(): [LayoutNode[][], number[], number[]] {
     // Make the first block a pseudo loop header.
     const firstBlock = this.blocks[0] as LoopHeader; // TODO: Determine first block(s) from graph instead of number
     firstBlock.loopHeight = 0;
@@ -168,11 +168,11 @@ export class Graph {
     this.findLoops(firstBlock);
     this.layer(firstBlock);
     const layoutNodesByLayer = this.makeLayoutNodesByLayer();
-    const layerHeights = this.verticalize(layoutNodesByLayer);
     this.straightenEdges(layoutNodesByLayer);
-    this.finagleJoints(layoutNodesByLayer);
+    const trackHeights = this.finagleJoints(layoutNodesByLayer);
+    const layerHeights = this.verticalize(layoutNodesByLayer, trackHeights);
 
-    return [layoutNodesByLayer, layerHeights];
+    return [layoutNodesByLayer, layerHeights, trackHeights];
   }
 
   // Walks through the graph tracking which loop each block belongs to. As
@@ -458,7 +458,7 @@ export class Graph {
     return layoutNodesByLayer;
   }
 
-  private verticalize(layoutNodesByLayer: LayoutNode[][]): number[] {
+  private verticalize(layoutNodesByLayer: LayoutNode[][], trackHeights: number[]): number[] {
     const layerHeights: number[] = new Array(layoutNodesByLayer.length);
 
     let nextLayerY = CONTENT_PADDING;
@@ -472,7 +472,7 @@ export class Graph {
       }
 
       layerHeights[i] = layerHeight;
-      nextLayerY += layerHeight + LAYER_GAP;
+      nextLayerY += layerHeight + TRACK_PADDING + trackHeights[i] + TRACK_PADDING;
     }
 
     return layerHeights;
@@ -648,7 +648,7 @@ export class Graph {
     }
   }
 
-  private finagleJoints(layoutNodesByLayer: LayoutNode[][]) {
+  private finagleJoints(layoutNodesByLayer: LayoutNode[][]): number[] {
     interface Joint {
       x1: number,
       x2: number,
@@ -656,6 +656,8 @@ export class Graph {
       srcPort: number,
       dst: LayoutNode,
     }
+
+    const trackHeights: number[] = [];
 
     for (const nodes of layoutNodesByLayer) {
       // Get all joints into a list, and sort them left to right by their
@@ -733,7 +735,12 @@ export class Graph {
         }
         trackOffset += JOINT_SPACING;
       }
+
+      trackHeights.push(tracksHeight);
     }
+
+    assert(trackHeights.length === layoutNodesByLayer.length);
+    return trackHeights;
   }
 
   private renderBlock(block: MIRBlock): HTMLElement {
@@ -834,7 +841,7 @@ export class Graph {
     return el;
   }
 
-  private render(nodesByLayer: LayoutNode[][], layerHeights: number[]) {
+  private render(nodesByLayer: LayoutNode[][], layerHeights: number[], trackHeights: number[]) {
     // Position blocks according to layout
     for (const nodes of nodesByLayer) {
       for (const node of nodes) {
@@ -890,7 +897,7 @@ export class Graph {
             const backedge = dst.block;
             const x2 = backedge.layoutNode.pos.x + backedge.size.x;
             const y2 = backedge.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
-            const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2;
+            const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2;
             const arrow = arrowToBackedge(x1, y1, x2, y2);
             svg.appendChild(arrow);
           } else if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
@@ -898,21 +905,21 @@ export class Graph {
               // Draw upward arrow between dummies
               const x2 = dst.pos.x + PORT_START;
               const y2 = dst.pos.y;
-              const ym = y1 - LAYER_GAP / 2; // this really shouldn't matter because we should straighten all these out
+              const ym = y1 - TRACK_PADDING; // this really shouldn't matter because we should straighten all these out
               const arrow = upwardArrow(x1, y1, x2, y2, ym, false);
               svg.appendChild(arrow);
             } else {
               // Draw arrow to backedge dummy
               const x2 = dst.pos.x + PORT_START;
               const y2 = dst.pos.y;
-              const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2 + node.jointOffsets[i];
+              const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
               const arrow = arrowToBackedgeDummy(x1, y1, x2, y2, ym);
               svg.appendChild(arrow);
             }
           } else {
             const x2 = dst.pos.x + PORT_START;
             const y2 = dst.pos.y;
-            const ym = (y1 - node.size.y) + layerHeights[layer] + LAYER_GAP / 2 + node.jointOffsets[i];
+            const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
             const arrow = downwardArrow(x1, y1, x2, y2, ym, dst.block !== null);
             // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
             svg.appendChild(arrow);
