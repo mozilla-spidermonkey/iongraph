@@ -18,6 +18,11 @@
   --ig-text-color: black;
   --ig-text-color-dim: #777;
   --ig-background-primary: orange;
+
+  --ig-loop-header-color: #0e7924;
+  --ig-movable-color: blue;
+  --ig-rob-color: #444;
+  --ig-in-worklist-color: red;
 }
 
 a.ig-link-normal {
@@ -287,7 +292,6 @@ a.ig-link-normal {
 
 .ig-block {
   position: absolute;
-  border: 1px solid black;
   background-color: white;
 
   h2 {
@@ -297,9 +301,49 @@ a.ig-link-normal {
     background-color: black;
     color: white;
     padding: 0 1rem;
+    border: 1px solid black;
+    border-width: 1px 1px 0;
   }
 
-  .instructions {
+  .ig-instructions {
     padding: 0.5rem 1rem;
+    border: 1px solid black;
+    border-width: 0 1px 1px;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0 0.5rem;
   }
+
+  .ig-op-num {
+    text-align: right;
+  }
+}
+
+.ig-block-att-loopheader {
+  h2 {
+    background-color: var(--ig-loop-header-color);
+  }
+}
+
+.ig-block-att-splitedge {
+  .ig-instructions {
+    border-style: dotted;
+    border-width: 0 2px 2px;
+  }
+}
+
+.ig-ins-att-RecoveredOnBailout {
+  color: var(--ig-rob-color);
+}
+
+.ig-ins-att-Movable {
+  color: var(--ig-movable-color);
+}
+
+.ig-ins-att-Guard {
+  text-decoration: underline;
+}
+
+.ig-ins-att-InWorklist {
+  color: var(--ig-in-worklist-color);
 }

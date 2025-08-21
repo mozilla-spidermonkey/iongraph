@@ -737,40 +737,66 @@ export class Graph {
   }
 
   private renderBlock(block: MIRBlock): HTMLElement {
-    function mirOpToHTML(ins: MIRInstruction): string {
-      return `<div>${ins.id} ${ins.opcode}</div>`;
+    function mirOpToHTML(ins: MIRInstruction): HTMLElement[] {
+      const num = document.createElement("div");
+      num.classList.add("ig-op-num");
+      num.innerText = String(ins.id);
+      const opcode = document.createElement("div");
+      opcode.innerText = ins.opcode;
+
+      const els = [num, opcode];
+      for (const el of els) {
+        el.classList.add(...ins.attributes.map(att => `ig-ins-att-${att}`));
+      }
+      return els;
     }
 
-    function lirOpToHTML(ins: LIRInstruction): string {
-      let opcode = ins.opcode;
-      opcode = opcode.replace("<", "&lt;");
-      opcode = opcode.replace(">", "&gt;")
-      return `<div>${ins.id} ${opcode}</div>`;
+    function lirOpToHTML(ins: LIRInstruction): HTMLElement[] {
+      let safeOpcode = ins.opcode;
+      safeOpcode = safeOpcode.replace("<", "&lt;");
+      safeOpcode = safeOpcode.replace(">", "&gt;")
+      const num = document.createElement("div");
+      num.innerText = String(ins.id);
+      const opcode = document.createElement("div");
+      opcode.innerText = safeOpcode;
+      return [num, opcode];
     }
 
     const el = document.createElement("div");
+    this.container.appendChild(el);
     el.classList.add("ig-block");
-    let html = "";
+    for (const att of block.attributes) {
+      el.classList.add(`ig-block-att-${att}`);
+    }
+
     let desc = "";
     if (block.attributes.includes("loopheader")) {
       desc = " (loop header)";
     } else if (block.attributes.includes("backedge")) {
       desc = " (backedge)";
+    } else if (block.attributes.includes("splitedge")) {
+      desc = " (split edge)";
     }
-    html += `<h2>Block ${block.number}${desc}</h2>`;
-    html += `<div class="instructions">`;
+    const header = document.createElement("h2");
+    el.appendChild(header);
+    header.innerText = `Block ${block.number}${desc}`;
+
+    const insns = document.createElement("div");
+    el.appendChild(insns);
+    insns.classList.add("ig-instructions");
     if (block.lir) {
       for (const ins of block.lir.instructions) {
-        html += lirOpToHTML(ins);
+        for (const child of lirOpToHTML(ins)) {
+          insns.appendChild(child);
+        }
       }
     } else {
       for (const ins of block.instructions) {
-        html += mirOpToHTML(ins);
+        for (const child of mirOpToHTML(ins)) {
+          insns.appendChild(child);
+        }
       }
     }
-    html += "</div>";
-    el.innerHTML = html;
-    this.container.appendChild(el);
 
     el.style.width = `${el.clientWidth + 10}px`; // fudge factor because text sucks
     el.style.height = `${el.clientHeight}px`;
