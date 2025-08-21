@@ -1,4 +1,4 @@
-import type { MIRBlock as _MIRBlock } from "./iongraph";
+import type { MIRBlock as _MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph";
 import { assert } from "./utils";
 import { tweak } from "./tweak";
 
@@ -27,6 +27,7 @@ interface Vec2 {
 
 type MIRBlock = _MIRBlock & {
   // Properties added at runtime for this graph
+  lir: LIRBlock | null,
   preds: MIRBlock[],
   succs: MIRBlock[],
   el: HTMLElement,
@@ -94,8 +95,8 @@ export class Graph {
   width: number;
   height: number;
 
-  constructor(container: HTMLElement, _blocks: _MIRBlock[]) {
-    const blocks = _blocks as MIRBlock[];
+  constructor(container: HTMLElement, pass: Pass) {
+    const blocks = pass.mir.blocks as MIRBlock[];
 
     this.container = container;
     this.blocks = blocks;
@@ -106,9 +107,16 @@ export class Graph {
     this.width = 0;
     this.height = 0;
 
+    const lirBlocks = new Map<number, LIRBlock>();
+    for (const lir of pass.lir.blocks) {
+      lirBlocks.set(lir.number, lir);
+    }
+
     // Initialize blocks
     for (const block of blocks) {
       this.byNum[block.number] = block;
+
+      block.lir = lirBlocks.get(block.number) ?? null;
 
       const el = this.renderBlock(block);
       block.el = el;
@@ -729,6 +737,17 @@ export class Graph {
   }
 
   private renderBlock(block: MIRBlock): HTMLElement {
+    function mirOpToHTML(ins: MIRInstruction): string {
+      return `<div>${ins.id} ${ins.opcode}</div>`;
+    }
+
+    function lirOpToHTML(ins: LIRInstruction): string {
+      let opcode = ins.opcode;
+      opcode = opcode.replace("<", "&lt;");
+      opcode = opcode.replace(">", "&gt;")
+      return `<div>${ins.id} ${opcode}</div>`;
+    }
+
     const el = document.createElement("div");
     el.classList.add("ig-block");
     let html = "";
@@ -740,8 +759,14 @@ export class Graph {
     }
     html += `<h2>Block ${block.number}${desc}</h2>`;
     html += `<div class="instructions">`;
-    for (const ins of block.instructions) {
-      html += `<div>${ins.id} ${ins.opcode}</div>`;
+    if (block.lir) {
+      for (const ins of block.lir.instructions) {
+        html += lirOpToHTML(ins);
+      }
+    } else {
+      for (const ins of block.instructions) {
+        html += mirOpToHTML(ins);
+      }
     }
     html += "</div>";
     el.innerHTML = html;

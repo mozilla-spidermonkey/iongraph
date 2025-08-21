@@ -26,6 +26,17 @@ export interface MIRBlock {
   instructions: MIRInstruction[],
 }
 
+export interface LIRBlock {
+  number: number,
+  instructions: LIRInstruction[],
+}
+
+export interface LIRInstruction {
+  id: number,
+  opcode: string,
+  defs: number[],
+}
+
 export interface MIRInstruction {
   id: number,
   opcode: string,

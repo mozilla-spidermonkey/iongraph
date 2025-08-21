@@ -76,7 +76,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         try {
           // TODO: Display LIR as well, or perhaps wrap that in the Graph
           // because they are interdependent.
-          graph.current = new Graph(graphDiv.current, pass.mir.blocks);
+          graph.current = new Graph(graphDiv.current, pass);
         } catch (e) {
           graphDiv.current.innerHTML = "An error occurred while laying out the graph. See console.";
           console.error(e);
