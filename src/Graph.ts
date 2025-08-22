@@ -13,12 +13,13 @@ const TRACK_PADDING = tweak("Track Padding", 36);
 const JOINT_SPACING = tweak("Joint Spacing", 16);
 const HEADER_ARROW_PUSHDOWN = tweak("Header Arrow Pushdown", 16);
 const BACKEDGE_ARROW_PUSHOUT = tweak("Backedge Arrow Pushout", 32);
+const LAYOUT_ITERATIONS = tweak("Layout Iterations", 2, { min: 0, max: 6 });
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
 const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 4, { min: 0, max: 10 });
 
 const CONTENT_PADDING = 20;
 
-const EDGE_STRAIGHTENING_PASSES = tweak("Edge Straightening Passes", 40, { min: 0, max: 40 });
+const STOP_AT_PASS = tweak("Stop At Pass", 30, { min: 0, max: 30 });
 
 interface Vec2 {
   x: number,
@@ -75,6 +76,7 @@ interface _LayoutNodeCommon {
   srcNodes: LayoutNode[],
   dstNodes: LayoutNode[],
   jointOffsets: number[],
+  flags: NodeFlags,
 }
 
 type BlockNode = _LayoutNodeCommon & {
@@ -85,6 +87,10 @@ type DummyNode = _LayoutNodeCommon & {
   block: null,
   dstBlock: MIRBlock,
 };
+
+type NodeFlags = number;
+const LEFTMOST_DUMMY: NodeFlags = 1 << 0;
+const RIGHTMOST_DUMMY: NodeFlags = 1 << 1;
 
 export class Graph {
   container: HTMLElement;
@@ -167,7 +173,7 @@ export class Graph {
 
     this.findLoops(firstBlock);
     this.layer(firstBlock);
-    const layoutNodesByLayer = this.makeLayoutNodesByLayer();
+    const layoutNodesByLayer = this.makeLayoutNodes();
     this.straightenEdges(layoutNodesByLayer);
     const trackHeights = this.finagleJoints(layoutNodesByLayer);
     const layerHeights = this.verticalize(layoutNodesByLayer, trackHeights);
@@ -239,7 +245,7 @@ export class Graph {
     }
   }
 
-  private makeLayoutNodesByLayer(): LayoutNode[][] {
+  private makeLayoutNodes(): LayoutNode[][] {
     function connectNodes(from: LayoutNode, to: LayoutNode) {
       if (!from.dstNodes.includes(to)) {
         from.dstNodes.push(to);
@@ -317,6 +323,7 @@ export class Graph {
             dstNodes: [],
             dstBlock: edge.dstBlock,
             jointOffsets: [],
+            flags: 0,
           };
           connectNodes(edge.src, newDummy);
           layoutNodesByLayer[layer].push(newDummy);
@@ -375,6 +382,7 @@ export class Graph {
           srcNodes: [],
           dstNodes: [],
           jointOffsets: [],
+          flags: 0,
         };
         for (const edge of terminatingEdges) {
           if (edge.dstBlock === block) {
@@ -396,6 +404,7 @@ export class Graph {
             dstNodes: [],
             dstBlock: backedge,
             jointOffsets: [],
+            flags: 0,
           };
           connectNodes(backedgeDummy, latestDummyForBackedge.get(backedge) ?? backedge.layoutNode);
           layoutNodesByLayer[layer].push(backedgeDummy);
@@ -455,6 +464,24 @@ export class Graph {
       }
     }
 
+    // Mark leftmost and rightmost dummies.
+    for (const nodes of layoutNodesByLayer) {
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].block === null) {
+          nodes[i].flags |= LEFTMOST_DUMMY;
+        } else {
+          break;
+        }
+      }
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        if (nodes[i].block === null) {
+          nodes[i].flags |= RIGHTMOST_DUMMY;
+        } else {
+          break;
+        }
+      }
+    }
+
     return layoutNodesByLayer;
   }
 
@@ -510,7 +537,7 @@ export class Graph {
     };
 
     const straightenDummyRuns = () => {
-      // Track max position of backedge dummies
+      // Track max position of dummies
       const dummyLinePositions = new Map<MIRBlock, number>();
       for (const dummy of dummies(layoutNodesByLayer)) {
         const dst = dummy.dstBlock;
@@ -528,6 +555,63 @@ export class Graph {
         const backedge = dummy.dstBlock;
         const x = dummyLinePositions.get(backedge);
         assert(x, `no position for backedge ${backedge.number}`);
+        dummy.pos.x = x;
+      }
+
+      for (const nodes of layoutNodesByLayer) {
+        pushNeighbors(nodes);
+      }
+    };
+
+    const suckInLeftmostDummies = () => {
+      // Break leftmost dummy runs by pulling them as far right as possible
+      // (but never pulling any node to the right of its parent, or its
+      // ultimate destination block). Track the min position for each
+      // destination as we go.
+      const dummyRunPositions = new Map<MIRBlock, number>();
+      for (const nodes of layoutNodesByLayer) {
+        // Find leftmost non-dummy node
+        let i = 0;
+        let nextX = 0;
+        for (; i < nodes.length; i++) {
+          if (!(nodes[i].flags & LEFTMOST_DUMMY)) {
+            nextX = nodes[i].pos.x;
+            break;
+          }
+        }
+
+        // Walk backward through leftmost dummies, calculating how far to the
+        // right we can push them.
+        i -= 1;
+        nextX -= BLOCK_GAP + PORT_START;
+        for (; i >= 0; i--) {
+          const dummy = nodes[i] as DummyNode;
+          assert(dummy.block === null && dummy.flags & LEFTMOST_DUMMY);
+          let maxSafeX = nextX;
+          for (const src of dummy.srcNodes) {
+            const srcX = src.pos.x + src.dstNodes.indexOf(dummy) * PORT_SPACING;
+            if (srcX < maxSafeX) {
+              maxSafeX = srcX;
+            }
+          }
+          if (dummy.dstBlock.layoutNode.pos.x < maxSafeX) {
+            maxSafeX = dummy.dstBlock.layoutNode.pos.x;
+          }
+          dummy.pos.x = maxSafeX;
+          nextX = dummy.pos.x - BLOCK_GAP;
+          dummyRunPositions.set(dummy.dstBlock, Math.min(dummyRunPositions.get(dummy.dstBlock) ?? Infinity, maxSafeX));
+        }
+      }
+
+      console.log(dummyRunPositions);
+
+      // Apply min positions to all dummies in a run.
+      for (const dummy of dummies(layoutNodesByLayer)) {
+        if (!(dummy.flags & LEFTMOST_DUMMY)) {
+          continue;
+        }
+        const x = dummyRunPositions.get(dummy.dstBlock);
+        assert(x, `no position for run to block ${dummy.dstBlock.number}`);
         dummy.pos.x = x;
       }
     };
@@ -551,11 +635,79 @@ export class Graph {
             if (dstIndexInNextLayer > lastShifted && dst.srcNodes[0] === node) {
               const srcPortOffset = PORT_START + PORT_SPACING * srcPort;
               const dstPortOffset = PORT_START;
+
+              let xBefore = dst.pos.x;
               dst.pos.x = Math.max(dst.pos.x, node.pos.x + srcPortOffset - dstPortOffset);
-              lastShifted = dstIndexInNextLayer;
+              if (dst.pos.x !== xBefore) {
+                lastShifted = dstIndexInNextLayer;
+              }
             }
           }
         }
+      }
+    };
+
+    // Walk each layer right to left, pulling nodes to the right to line them
+    // up with their parents and children as well as possible, but WITHOUT ever
+    // causing another overlap and therefore any need to push neighbors.
+    //
+    // (The exception is rightmost dummies; we push those because we can
+    // trivially straighten them later.)
+    const straightenConservative = () => {
+      for (const nodes of layoutNodesByLayer) {
+        for (let i = nodes.length - 1; i >= 0; i--) {
+          const node = nodes[i];
+
+          // Only do this to block nodes, and not to backedges.
+          if (!node.block || node.block.attributes.includes("backedge")) {
+            continue;
+          }
+
+          let deltasToTry: number[] = [];
+          for (const parent of node.srcNodes) {
+            const srcPortOffset = PORT_START + parent.dstNodes.indexOf(node) * PORT_SPACING;
+            const dstPortOffset = PORT_START;
+            deltasToTry.push((parent.pos.x + srcPortOffset) - (node.pos.x + dstPortOffset));
+          }
+          for (const [srcPort, dst] of node.dstNodes.entries()) {
+            if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
+              continue;
+            }
+            const srcPortOffset = PORT_START + srcPort * PORT_SPACING;
+            const dstPortOffset = PORT_START;
+            deltasToTry.push((dst.pos.x + dstPortOffset) - (node.pos.x + srcPortOffset));
+          }
+          if (deltasToTry.includes(0)) {
+            // Already aligned with something! Ignore this and move on.
+            continue;
+          }
+          deltasToTry = deltasToTry
+            .filter(d => d > 0)
+            .sort((a, b) => a - b);
+
+          for (const delta of deltasToTry) {
+            let overlapsAny = false;
+            for (let j = i + 1; j < nodes.length; j++) {
+              const other = nodes[j];
+              if (other.flags & RIGHTMOST_DUMMY) {
+                // Ignore rightmost dummies since they can be freely straightened out later.
+                continue;
+              }
+              const a1 = node.pos.x + delta, a2 = node.pos.x + delta + node.size.x;
+              const b1 = other.pos.x - BLOCK_GAP, b2 = other.pos.x + other.size.x + BLOCK_GAP;
+              const overlaps = a2 >= b1 && a1 <= b2;
+              if (overlaps) {
+                overlapsAny = true;
+              }
+            }
+            if (!overlapsAny) {
+              node.pos.x += delta;
+              break;
+            }
+          }
+        }
+
+        pushNeighbors(nodes);
       }
     };
 
@@ -624,26 +776,29 @@ export class Graph {
     // the result. I have them in this wacky structure because I want to be
     // able to use my debug scrubber.
     const passes = [
-      straightenChildren,
-      pushIntoLoops,
+      ...repeat([
+        straightenChildren,
+        pushIntoLoops,
+        straightenDummyRuns,
+      ], LAYOUT_ITERATIONS),
       straightenDummyRuns,
       ...repeat([
         straightenNearlyStraightEdgesUp,
         straightenNearlyStraightEdgesDown,
       ], NEARLY_STRAIGHT_ITERATIONS),
+      straightenConservative,
       straightenDummyRuns,
-      straightenChildren,
-      () => {
-        for (const nodes of layoutNodesByLayer) {
-          pushNeighbors(nodes);
-        }
-      },
+      suckInLeftmostDummies,
     ];
+    assert(passes.length <= (STOP_AT_PASS.initial ?? Infinity), `STOP_AT_PASS was too small - should be at least ${passes.length}`);
+    console.group("Running passes");
     for (const [i, pass] of passes.entries()) {
-      if (i < EDGE_STRAIGHTENING_PASSES) {
+      if (i < STOP_AT_PASS) {
+        console.log(pass.name ?? pass.toString());
         pass();
       }
     }
+    console.groupEnd();
   }
 
   private finagleJoints(layoutNodesByLayer: LayoutNode[][]): number[] {
@@ -923,12 +1078,12 @@ export class Graph {
       }
     }
 
-    // Render dummy nodes
+    // Render debug nodes
     if (+DEBUG) {
       for (const nodes of nodesByLayer) {
         for (const node of nodes) {
           const el = document.createElement("div");
-          el.innerHTML = `${node.id}<br>&lt;- ${node.srcNodes.map(n => n.id)}<br>-&gt; ${node.dstNodes.map(n => n.id)}`;
+          el.innerHTML = `${node.id}<br>&lt;- ${node.srcNodes.map(n => n.id)}<br>-&gt; ${node.dstNodes.map(n => n.id)}<br>${node.flags}`;
           el.style.position = "absolute";
           el.style.border = "1px solid black";
           // el.style.borderWidth = "1px 0 0 1px";
