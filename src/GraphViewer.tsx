@@ -3,7 +3,7 @@ import { Graph } from "./Graph";
 
 import type { Func, MIRBlock, Pass } from "./iongraph";
 import { classes } from "./classes";
-import { clamp, filerp } from "./utils";
+import { clamp, filerp, must } from "./utils";
 import { tweak } from "./tweak";
 
 const ZOOM_SENSITIVITY = 1.10;
@@ -142,7 +142,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     const viewportWidth = containerRect.width / z;
     const viewportHeight = containerRect.height / z;
     const xPadding = Math.max(20 / z, (viewportWidth - selected.layoutNode.size.x) / 2);
-    const yPadding = Math.max(100 / z, (viewportHeight - selected.layoutNode.size.y) / 2);
+    const yPadding = Math.max(20 / z, (viewportHeight - selected.layoutNode.size.y) / 2);
     const x = selected.layoutNode.pos.x - xPadding;
     const y = selected.layoutNode.pos.y - yPadding;
     goToCoordinates(x, y, z, animate);
@@ -150,6 +150,15 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
 
   function redrawGraph(pass: Pass | undefined) {
     if (graphDiv.current) {
+      const selected = graph.current?.selectedBlocks ?? new Set();
+      const lastSelected = graph.current?.lastSelectedBlock;
+      let offsetX = 0, offsetY = 0;
+      if (lastSelected !== undefined) {
+        const block = must(must(graph.current).blocksByNum.get(lastSelected));
+        offsetX = block.layoutNode.pos.x - (-tx.current / zoom.current);
+        offsetY = block.layoutNode.pos.y - (-ty.current / zoom.current);
+      }
+
       graphDiv.current.innerHTML = "";
       graph.current = null;
 
@@ -158,6 +167,18 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
           // TODO: Display LIR as well, or perhaps wrap that in the Graph
           // because they are interdependent.
           graph.current = new Graph(graphDiv.current, pass);
+          graph.current.setSelection([...selected], lastSelected);
+          if (lastSelected !== undefined) {
+            const newSelectedBlock = graph.current.blocksByNum.get(lastSelected);
+            if (newSelectedBlock) { // The desired selected block still exists
+              goToCoordinates(
+                newSelectedBlock.layoutNode.pos.x - offsetX,
+                newSelectedBlock.layoutNode.pos.y - offsetY,
+                zoom.current,
+                false, // animate
+              );
+            }
+          }
         } catch (e) {
           graphDiv.current.innerHTML = "An error occurred while laying out the graph. See console.";
           console.error(e);
