@@ -1,4 +1,4 @@
-import type { MIRBlock as _MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph";
+import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph";
 import { assert } from "./utils";
 import { tweak } from "./tweak";
 
@@ -26,11 +26,11 @@ interface Vec2 {
   y: number,
 }
 
-type MIRBlock = _MIRBlock & {
+type Block = MIRBlock & {
   // Properties added at runtime for this graph
   lir: LIRBlock | null,
-  preds: MIRBlock[],
-  succs: MIRBlock[],
+  preds: Block[],
+  succs: Block[],
   el: HTMLElement,
   size: Vec2,
   layer: number,
@@ -38,29 +38,29 @@ type MIRBlock = _MIRBlock & {
   layoutNode: LayoutNode, // this is set partway through the process but trying to type it as such is absolutely not worth it
 }
 
-type LoopHeader = MIRBlock & {
+type LoopHeader = Block & {
   loopHeight: number,
   parentLoop: LoopHeader | null,
-  outgoingEdges: MIRBlock[],
-  backedge: MIRBlock,
+  outgoingEdges: Block[],
+  backedge: Block,
 }
 
-function isTrueLH(block: MIRBlock): block is LoopHeader {
+function isTrueLH(block: Block): block is LoopHeader {
   return block.attributes.includes("loopheader");
 }
 
-function isLH(block: MIRBlock): block is LoopHeader {
+function isLH(block: Block): block is LoopHeader {
   return (block as any).loopHeight !== undefined;
 }
 
-function asTrueLH(block: MIRBlock): LoopHeader {
+function asTrueLH(block: Block): LoopHeader {
   if (isTrueLH(block)) {
     return block;
   }
   throw new Error("Block is not a LoopHeader");
 }
 
-function asLH(block: MIRBlock): LoopHeader {
+function asLH(block: Block): LoopHeader {
   if (isLH(block)) {
     return block as LoopHeader;
   }
@@ -80,12 +80,12 @@ interface _LayoutNodeCommon {
 }
 
 type BlockNode = _LayoutNodeCommon & {
-  block: MIRBlock,
+  block: Block,
 };
 
 type DummyNode = _LayoutNodeCommon & {
   block: null,
-  dstBlock: MIRBlock,
+  dstBlock: Block,
 };
 
 type NodeFlags = number;
@@ -106,15 +106,15 @@ const log = new Proxy(console, {
 export class Graph {
   container: HTMLElement;
   pass: Pass;
-  blocks: MIRBlock[];
-  byNum: { [id: number]: MIRBlock };
+  blocks: Block[];
+  byNum: { [id: number]: Block };
   loops: LoopHeader[];
 
   width: number;
   height: number;
 
   constructor(container: HTMLElement, pass: Pass) {
-    const blocks = pass.mir.blocks as MIRBlock[];
+    const blocks = pass.mir.blocks as Block[];
 
     this.container = container;
     this.pass = pass;
@@ -199,7 +199,7 @@ export class Graph {
   // block has lesser loopDepth than its parent, that means it is outside
   // at least one loop, and the loop it belongs to can be looked up by loop
   // depth.
-  private findLoops(block: MIRBlock, loopIDsByDepth: number[] | null = null) {
+  private findLoops(block: Block, loopIDsByDepth: number[] | null = null) {
     if (loopIDsByDepth === null) {
       loopIDsByDepth = [block.number];
     }
@@ -226,7 +226,7 @@ export class Graph {
     }
   }
 
-  private layer(block: MIRBlock, layer = 0) {
+  private layer(block: Block, layer = 0) {
     if (block.attributes.includes("backedge")) {
       block.layer = block.succs[0].layer;
       return;
@@ -276,9 +276,9 @@ export class Graph {
       }
     }
 
-    let blocksByLayer: MIRBlock[][];
+    let blocksByLayer: Block[][];
     {
-      const blocksByLayerObj: { [layer: number]: MIRBlock[] } = {};
+      const blocksByLayerObj: { [layer: number]: Block[] } = {};
       for (const block of this.blocks) {
         if (!blocksByLayerObj[block.layer]) {
           blocksByLayerObj[block.layer] = [];
@@ -293,14 +293,14 @@ export class Graph {
 
     type IncompleteEdge = {
       src: LayoutNode,
-      dstBlock: MIRBlock,
+      dstBlock: Block,
     };
 
     let nodeID = 0;
 
     const layoutNodesByLayer: LayoutNode[][] = blocksByLayer.map(() => []);
     const activeEdges: IncompleteEdge[] = [];
-    const latestDummyForBackedge = new Map<MIRBlock, DummyNode>();
+    const latestDummyForBackedge = new Map<Block, DummyNode>();
     for (const [layer, blocks] of blocksByLayer.entries()) {
       // Delete any active edges that terminate at this layer, since we do
       // not want to make any dummy nodes for them.
@@ -351,7 +351,7 @@ export class Graph {
       // Track which blocks will get backedge dummy nodes.
       interface LoopDummy {
         loopID: number,
-        block: MIRBlock,
+        block: Block,
       }
       const loopDummies: LoopDummy[] = [];
       const loopHeaders = new Set<number>();
@@ -384,7 +384,7 @@ export class Graph {
       }
 
       // Create real nodes for each block on the layer.
-      const backedgeEdges: [MIRBlock, MIRBlock][] = [];
+      const backedgeEdges: [Block, Block][] = [];
       for (const block of blocks) {
         // Create new layout node for block
         const node: BlockNode = {
@@ -551,7 +551,7 @@ export class Graph {
 
     const straightenDummyRuns = () => {
       // Track max position of dummies
-      const dummyLinePositions = new Map<MIRBlock, number>();
+      const dummyLinePositions = new Map<Block, number>();
       for (const dummy of dummies(layoutNodesByLayer)) {
         const dst = dummy.dstBlock;
         let desiredX = dummy.pos.x;
@@ -581,7 +581,7 @@ export class Graph {
       // (but never pulling any node to the right of its parent, or its
       // ultimate destination block). Track the min position for each
       // destination as we go.
-      const dummyRunPositions = new Map<MIRBlock, number>();
+      const dummyRunPositions = new Map<Block, number>();
       for (const nodes of layoutNodesByLayer) {
         // Find leftmost non-dummy node
         let i = 0;
@@ -907,7 +907,7 @@ export class Graph {
     return trackHeights;
   }
 
-  private renderBlock(block: MIRBlock): HTMLElement {
+  private renderBlock(block: Block): HTMLElement {
     function mirOpToHTML(ins: MIRInstruction): HTMLElement {
       const prettyOpcode = ins.opcode
         .replace('->', '→')
