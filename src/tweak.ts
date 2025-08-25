@@ -171,16 +171,13 @@ document.querySelector("body")?.appendChild(globalContainer);
 
 export const globalTweaks = new Tweaks({ container: globalContainer });
 
-// export function tweak(val: number) {
-//   globalTweaks.add(val);
-// }
-
-/* @ts-ignore */
+// @ts-ignore
 window.tweaks = globalTweaks;
 
-// // Type system tests, uncomment to check
-// const testContainer = document.createElement("div");
-// const testTweaks = new Tweaks({ container: testContainer });
-// let testTweak = tweak(3, { tweaksObject: testTweaks });
-// /* ERROR */ testTweak = 4;
-// /*    OK */ testTweak.set(4);
+// Type system tests
+const testContainer = document.createElement("div");
+const testTweaks = new Tweaks({ container: testContainer });
+let testTweak = tweak("Test Value", 3, { tweaksObject: testTweaks });
+testTweak.set(4);
+// @ts-expect-error
+testTweak = 4;

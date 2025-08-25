@@ -92,8 +92,20 @@ type NodeFlags = number;
 const LEFTMOST_DUMMY: NodeFlags = 1 << 0;
 const RIGHTMOST_DUMMY: NodeFlags = 1 << 1;
 
+const log = new Proxy(console, {
+  get(target, prop: keyof Console) {
+    const field = target[prop];
+
+    if (typeof field !== "function") { // catches undefined too
+      return field;
+    }
+    return +DEBUG ? field.bind(target) : () => { };
+  }
+});
+
 export class Graph {
   container: HTMLElement;
+  pass: Pass;
   blocks: MIRBlock[];
   byNum: { [id: number]: MIRBlock };
   loops: LoopHeader[];
@@ -105,6 +117,7 @@ export class Graph {
     const blocks = pass.mir.blocks as MIRBlock[];
 
     this.container = container;
+    this.pass = pass;
     this.blocks = blocks;
     this.byNum = {};
 
@@ -603,8 +616,6 @@ export class Graph {
         }
       }
 
-      console.log(dummyRunPositions);
-
       // Apply min positions to all dummies in a run.
       for (const dummy of dummies(layoutNodesByLayer)) {
         if (!(dummy.flags & LEFTMOST_DUMMY)) {
@@ -791,14 +802,14 @@ export class Graph {
       suckInLeftmostDummies,
     ];
     assert(passes.length <= (STOP_AT_PASS.initial ?? Infinity), `STOP_AT_PASS was too small - should be at least ${passes.length}`);
-    console.group("Running passes");
+    log.group("Running passes");
     for (const [i, pass] of passes.entries()) {
       if (i < STOP_AT_PASS) {
-        console.log(pass.name ?? pass.toString());
+        log.log(pass.name ?? pass.toString());
         pass();
       }
     }
-    console.groupEnd();
+    log.groupEnd();
   }
 
   private finagleJoints(layoutNodesByLayer: LayoutNode[][]): number[] {
