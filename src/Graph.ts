@@ -115,6 +115,9 @@ export class Graph {
   width: number;
   height: number;
 
+  selectedBlocks: Set<number>;
+  lastSelectedBlock: number | null;
+
   constructor(container: HTMLElement, pass: Pass) {
     const blocks = pass.mir.blocks as Block[];
 
@@ -127,6 +130,9 @@ export class Graph {
 
     this.width = 0;
     this.height = 0;
+
+    this.selectedBlocks = new Set();
+    this.lastSelectedBlock = null;
 
     const lirBlocks = new Map<number, LIRBlock>();
     for (const lir of pass.lir.blocks) {
@@ -498,26 +504,6 @@ export class Graph {
     }
 
     return layoutNodesByLayer;
-  }
-
-  private verticalize(layoutNodesByLayer: LayoutNode[][], trackHeights: number[]): number[] {
-    const layerHeights: number[] = new Array(layoutNodesByLayer.length);
-
-    let nextLayerY = CONTENT_PADDING;
-    for (let i = 0; i < layoutNodesByLayer.length; i++) {
-      const nodes = layoutNodesByLayer[i];
-
-      let layerHeight = 0;
-      for (const node of nodes) {
-        node.pos.y = nextLayerY;
-        layerHeight = Math.max(layerHeight, node.size.y);
-      }
-
-      layerHeights[i] = layerHeight;
-      nextLayerY += layerHeight + TRACK_PADDING + trackHeights[i] + TRACK_PADDING;
-    }
-
-    return layerHeights;
   }
 
   private straightenEdges(layoutNodesByLayer: LayoutNode[][]) {
@@ -909,6 +895,26 @@ export class Graph {
     return trackHeights;
   }
 
+  private verticalize(layoutNodesByLayer: LayoutNode[][], trackHeights: number[]): number[] {
+    const layerHeights: number[] = new Array(layoutNodesByLayer.length);
+
+    let nextLayerY = CONTENT_PADDING;
+    for (let i = 0; i < layoutNodesByLayer.length; i++) {
+      const nodes = layoutNodesByLayer[i];
+
+      let layerHeight = 0;
+      for (const node of nodes) {
+        node.pos.y = nextLayerY;
+        layerHeight = Math.max(layerHeight, node.size.y);
+      }
+
+      layerHeights[i] = layerHeight;
+      nextLayerY += layerHeight + TRACK_PADDING + trackHeights[i] + TRACK_PADDING;
+    }
+
+    return layerHeights;
+  }
+
   private renderBlock(block: Block): HTMLElement {
     function mirOpToHTML(ins: MIRInstruction): HTMLElement {
       const prettyOpcode = ins.opcode
@@ -917,7 +923,7 @@ export class Graph {
 
       const row = document.createElement("tr");
       row.classList.add(...ins.attributes.map(att => `ig-ins-att-${att}`));
-      row.setAttribute("data-mir-op-id", `${ins.id}`);
+      row.setAttribute("data-ig-mir-op-id", `${ins.id}`);
 
       const num = document.createElement("td");
       num.classList.add("ig-op-num");
@@ -942,7 +948,7 @@ export class Graph {
         .replace('<-', '←');
 
       const row = document.createElement("tr");
-      row.setAttribute("data-lir-op-id", `${ins.id}`);
+      row.setAttribute("data-ig-lir-op-id", `${ins.id}`);
 
       const num = document.createElement("td");
       num.classList.add("ig-op-num");
@@ -966,7 +972,7 @@ export class Graph {
     for (const att of block.attributes) {
       el.classList.add(`ig-block-att-${att}`);
     }
-    el.setAttribute("data-block-number", `${block.number}`);
+    el.setAttribute("data-ig-block-number", `${block.number}`);
 
     let desc = "";
     if (block.attributes.includes("loopheader")) {
@@ -1002,6 +1008,22 @@ export class Graph {
       }
     }
     insnsContainer.appendChild(insns);
+
+    // Attach event handlers
+    header.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    header.addEventListener("click", e => {
+      e.stopPropagation();
+
+      if (!e.shiftKey) {
+        this.selectedBlocks.clear();
+      }
+      this.selectedBlocks.add(block.number);
+      this.lastSelectedBlock = block.number;
+      this.renderSelection();
+    });
 
     return el;
   }
@@ -1110,6 +1132,25 @@ export class Graph {
         }
       }
     }
+  }
+
+  private renderSelection() {
+    this.container.querySelectorAll(".ig-block").forEach(blockEl => {
+      const num = parseInt(must(blockEl.getAttribute("data-ig-block-number")), 10);
+      blockEl.classList.toggle("ig-selected", this.selectedBlocks.has(num));
+      blockEl.classList.toggle("ig-last-selected", this.lastSelectedBlock === num);
+    });
+  }
+
+  setSelection(blocks: number[], lastSelected?: number) {
+    this.selectedBlocks.clear();
+    for (const block of blocks) {
+      this.selectedBlocks.add(block);
+      if (lastSelected === block) {
+        this.lastSelectedBlock = block;
+      }
+    }
+    this.renderSelection();
   }
 }
 

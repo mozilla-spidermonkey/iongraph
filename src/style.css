@@ -18,6 +18,8 @@
   --ig-text-color: black;
   --ig-text-color-dim: #777;
   --ig-background-primary: orange;
+  --ig-block-selected: #ffc863;
+  --ig-block-last-selected: orange;
 
   --ig-loop-header-color: #0e7924;
   --ig-movable-color: blue;
@@ -327,6 +329,14 @@ a.ig-link-normal {
 
   .ig-op-type {
     text-align: right;
+  }
+
+  &.ig-selected {
+    outline: 4px solid var(--ig-block-selected);
+  }
+
+  &.ig-last-selected {
+    outline-color: var(--ig-block-last-selected);
   }
 }
 

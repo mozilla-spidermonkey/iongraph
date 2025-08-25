@@ -11,7 +11,13 @@ export class Tweaks {
     this.tweaks = [];
   }
 
-  add(tweak: Tweak) {
+  add(tweak: Tweak): Tweak {
+    // Do not add the same tweak twice.
+    const existing = this.tweaks.find(t => t.name === tweak.name);
+    if (existing) {
+      return existing;
+    }
+
     this.tweaks.push(tweak);
 
     const el = document.createElement("div");
@@ -44,6 +50,7 @@ export class Tweaks {
     range.value = String(tweak);
     range.min = String(tweak.min);
     range.max = String(tweak.max);
+    range.step = tweak.step === 0 ? "any" : String(tweak.step);
     range.addEventListener("input", () => {
       tweak.set(range.valueAsNumber);
     });
@@ -64,6 +71,8 @@ export class Tweaks {
     });
 
     this.container.style.visibility = "visible";
+
+    return tweak;
   }
 }
 
@@ -84,11 +93,13 @@ interface _Tweak {
   name: string;
   min: number;
   max: number;
+  step: number;
 }
 
 export interface TweakOptions {
   min?: number,
   max?: number,
+  step?: number,
 
   tweaksObject?: Tweaks,
 }
@@ -97,7 +108,7 @@ export type TweakCallback = (newValue: number) => void;
 
 export function tweak(name: string, initial: number, options: TweakOptions = {}): Tweak {
   let value = initial;
-  let callbacks: TweakCallback[] = [];
+  const callbacks: TweakCallback[] = [];
 
   let min: number;
   let max: number;
@@ -115,6 +126,7 @@ export function tweak(name: string, initial: number, options: TweakOptions = {})
     min = 0;
     max = 100;
   }
+  const step = options.step ?? 0;
 
   const t: _Tweak = {
     get(): number {
@@ -151,11 +163,10 @@ export function tweak(name: string, initial: number, options: TweakOptions = {})
     name: name,
     min: min,
     max: max,
+    step: step,
   };
 
-  (options.tweaksObject ?? globalTweaks).add(t as Tweak);
-
-  return t as Tweak;
+  return (options.tweaksObject ?? globalTweaks).add(t as Tweak);
 }
 
 const globalContainer = document.createElement("div");

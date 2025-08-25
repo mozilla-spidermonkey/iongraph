@@ -3,7 +3,8 @@ import { Graph } from "./Graph";
 
 import type { Func, MIRBlock, Pass } from "./iongraph";
 import { classes } from "./classes";
-import { clamp } from "./utils";
+import { clamp, filerp } from "./utils";
+import { tweak } from "./tweak";
 
 const ZOOM_SENSITIVITY = 1.10;
 const WHEEL_DELTA_SCALE = 0.01;
@@ -28,11 +29,14 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
   }, [propsPass]);
 
   const zoom = useRef(1);
-  const tx = useRef(0);
-  const ty = useRef(0);
+  const tx = useRef(0), ty = useRef(0);
 
-  const lastX = useRef(0);
-  const lastY = useRef(0);
+  const animating = useRef(false);
+  const targetZoom = useRef(1);
+  const targetTx = useRef(0), targetTy = useRef(0);
+
+  const startMouseX = useRef(0), startMouseY = useRef(0);
+  const lastMouseX = useRef(0), lastMouseY = useRef(0);
 
   function clampTranslation(tx: number, ty: number, scale: number): [number, number] {
     if (!container.current || !graph.current) {
@@ -65,6 +69,42 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     // actually receive input we want the clamping to "stick".
     const [clampedTx, clampedTy] = clampTranslation(tx.current, ty.current, zoom.current);
     graphDiv.current.style.transform = `translate(${clampedTx}px, ${clampedTy}px) scale(${zoom.current})`;
+  }
+
+  async function animateToTarget() {
+    if (animating.current) {
+      return;
+    }
+
+    animating.current = true;
+    let lastTime = performance.now();
+    while (animating.current) {
+      const now = await new Promise<number>(res => requestAnimationFrame(res));
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      const THRESHOLD_T = 1, THRESHOLD_ZOOM = 0.01;
+      const R = 0.000001; // fraction remaining after one second: smaller = faster
+      const dx = targetTx.current - tx.current;
+      const dy = targetTy.current - ty.current;
+      const dzoom = targetZoom.current - zoom.current;
+      tx.current = filerp(tx.current, targetTx.current, R, dt);
+      ty.current = filerp(ty.current, targetTy.current, R, dt);
+      zoom.current = filerp(zoom.current, targetZoom.current, R, dt);
+      updatePanAndZoom();
+
+      if (
+        Math.abs(dx) <= THRESHOLD_T
+        && Math.abs(dy) <= THRESHOLD_T
+        && Math.abs(dzoom) <= THRESHOLD_ZOOM
+      ) {
+        tx.current = targetTx.current;
+        ty.current = targetTy.current;
+        zoom.current = targetZoom.current;
+        animating.current = false;
+        break;
+      }
+    }
   }
 
   function redrawGraph(pass: Pass | undefined) {
@@ -114,6 +154,20 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         case "r": {
           setPassNumber(pn => Math.max(pn - 1, 0));
         } break;
+        case "c": {
+          const selected = graph.current?.blocksByNum.get(graph.current?.lastSelectedBlock ?? -1);
+          if (selected && container.current) {
+            const containerRect = container.current.getBoundingClientRect();
+            const xPadding = Math.max(20, (containerRect.width - selected.layoutNode.size.x) / 2);
+            const yPadding = Math.max(100, (containerRect.height - selected.layoutNode.size.y) / 2);
+            const x = selected.layoutNode.pos.x - xPadding;
+            const y = selected.layoutNode.pos.y - yPadding;
+            targetTx.current = -x;
+            targetTy.current = -y;
+            targetZoom.current = 1;
+            animateToTarget();
+          }
+        }
       }
     };
     window.addEventListener("keydown", handler);
@@ -166,34 +220,48 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         tx.current = clampedTx;
         ty.current = clampedTy;
 
+        animating.current = false;
         updatePanAndZoom();
       }}
       onPointerDown={e => {
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        lastX.current = e.clientX;
-        lastY.current = e.clientY;
+        startMouseX.current = e.clientX;
+        startMouseY.current = e.clientY;
+        lastMouseX.current = e.clientX;
+        lastMouseY.current = e.clientY;
+        animating.current = false;
       }}
       onPointerMove={e => {
         if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
           return;
         }
 
-        const dx = (e.clientX - lastX.current);
-        const dy = (e.clientY - lastY.current);
+        const dx = (e.clientX - lastMouseX.current);
+        const dy = (e.clientY - lastMouseY.current);
         tx.current += dx;
         ty.current += dy;
-        lastX.current = e.clientX;
-        lastY.current = e.clientY;
+        lastMouseX.current = e.clientX;
+        lastMouseY.current = e.clientY;
 
         const [clampedTx, clampedTy] = clampTranslation(tx.current, ty.current, zoom.current);
         tx.current = clampedTx;
         ty.current = clampedTy;
 
+        animating.current = false;
         updatePanAndZoom();
       }}
       onPointerUp={e => {
         e.currentTarget.releasePointerCapture(e.pointerId);
+
+        const THRESHOLD = 1;
+        const deltaX = startMouseX.current - e.clientX;
+        const deltaY = startMouseY.current - e.clientY;
+        if (Math.abs(deltaX) <= THRESHOLD && Math.abs(deltaY) <= THRESHOLD) {
+          graph.current?.setSelection([]);
+        }
+
+        animating.current = false;
       }}
     >
       <div ref={graphDiv} style={{
