@@ -8,7 +8,7 @@ import { clamp } from "./utils";
 const ZOOM_SENSITIVITY = 1.10;
 const WHEEL_DELTA_SCALE = 0.01;
 const MAX_ZOOM = 1;
-const MIN_ZOOM = 0.25;
+const MIN_ZOOM = 0.10;
 
 const CLAMP_AMOUNT = 40;
 
@@ -67,7 +67,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     graphDiv.current.style.transform = `translate(${clampedTx}px, ${clampedTy}px) scale(${zoom.current})`;
   }
 
-  function redrawGraph(pass: Pass) {
+  function redrawGraph(pass: Pass | undefined) {
     if (graphDiv.current) {
       graphDiv.current.innerHTML = "";
       graph.current = null;
@@ -89,10 +89,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
   // tweak system.
   useEffect(() => {
     const pass: Pass | undefined = func.passes[passNumber];
-    if (pass) {
-      redrawGraph(pass);
-    }
-
+    redrawGraph(pass);
     const handler = () => {
       redrawGraph(pass);
     };
@@ -106,6 +103,24 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
   useEffect(() => {
     updatePanAndZoom();
   });
+
+  // Hook up keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case "f": {
+          setPassNumber(pn => Math.min(pn + 1, func.passes.length - 1));
+        } break;
+        case "r": {
+          setPassNumber(pn => Math.max(pn - 1, 0));
+        } break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+    }
+  }, [func]);
 
   return <div className="ig-absolute ig-absolute-fill ig-flex">
     <div className="ig-w5 ig-br ig-flex-shrink-0 ig-overflow-y-auto">

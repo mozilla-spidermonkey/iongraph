@@ -13,3 +13,8 @@ export function assert<T>(cond: T | Falsy, msg?: string, soft = false): asserts 
     }
   }
 }
+
+export function must<T>(val: T | Falsy, msg?: string): T {
+  assert(val, msg);
+  return val;
+}

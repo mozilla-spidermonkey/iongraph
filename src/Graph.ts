@@ -1,5 +1,5 @@
 import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph";
-import { assert } from "./utils";
+import { assert, must } from "./utils";
 import { tweak } from "./tweak";
 
 const DEBUG = tweak("Debug?", 0, { min: 0, max: 1 });
@@ -53,14 +53,16 @@ function isLH(block: Block): block is LoopHeader {
   return (block as any).loopHeight !== undefined;
 }
 
-function asTrueLH(block: Block): LoopHeader {
+function asTrueLH(block: Block | undefined): LoopHeader {
+  assert(block);
   if (isTrueLH(block)) {
     return block;
   }
   throw new Error("Block is not a LoopHeader");
 }
 
-function asLH(block: Block): LoopHeader {
+function asLH(block: Block | undefined): LoopHeader {
+  assert(block);
   if (isLH(block)) {
     return block as LoopHeader;
   }
@@ -107,7 +109,7 @@ export class Graph {
   container: HTMLElement;
   pass: Pass;
   blocks: Block[];
-  byNum: { [id: number]: Block };
+  blocksByNum: Map<number, Block>;
   loops: LoopHeader[];
 
   width: number;
@@ -119,7 +121,7 @@ export class Graph {
     this.container = container;
     this.pass = pass;
     this.blocks = blocks;
-    this.byNum = {};
+    this.blocksByNum = new Map();
 
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
@@ -133,7 +135,7 @@ export class Graph {
 
     // Initialize blocks
     for (const block of blocks) {
-      this.byNum[block.number] = block;
+      this.blocksByNum.set(block.number, block);
 
       block.lir = lirBlocks.get(block.number) ?? null;
 
@@ -157,8 +159,8 @@ export class Graph {
 
     // After putting all blocks in our map, fill out block-to-block references.
     for (const block of blocks) {
-      block.preds = block.predecessors.map(id => this.byNum[id]);
-      block.succs = block.successors.map(id => this.byNum[id]);
+      block.preds = block.predecessors.map(id => must(this.blocksByNum.get(id)));
+      block.succs = block.successors.map(id => must(this.blocksByNum.get(id)));
 
       if (isTrueLH(block)) {
         const backedges = block.preds.filter(b => b.attributes.includes("backedge"));
@@ -207,7 +209,7 @@ export class Graph {
     if (isTrueLH(block)) {
       assert(block.loopDepth === loopIDsByDepth.length);
       const parentID = loopIDsByDepth[loopIDsByDepth.length - 1];
-      const parent = asLH(this.byNum[parentID]);
+      const parent = asLH(this.blocksByNum.get(parentID));
       block.parentLoop = parent;
 
       loopIDsByDepth = [...loopIDsByDepth, block.number];
@@ -234,7 +236,7 @@ export class Graph {
 
     block.layer = Math.max(block.layer, layer);
 
-    let loopHeader: LoopHeader | null = asLH(this.byNum[block.loopID]);
+    let loopHeader: LoopHeader | null = asLH(this.blocksByNum.get(block.loopID));
     while (loopHeader) {
       loopHeader.loopHeight = Math.max(loopHeader.loopHeight, block.layer - loopHeader.layer + 1);
       loopHeader = loopHeader.parentLoop;
@@ -244,7 +246,7 @@ export class Graph {
       if (succ.loopDepth < block.loopDepth) {
         // This is an outgoing edge from the current loop.
         // Track it on our current loop's header to be layered later.
-        const loopHeader = asLH(this.byNum[block.loopID]);
+        const loopHeader = asLH(this.blocksByNum.get(block.loopID));
         loopHeader.outgoingEdges.push(succ);
       } else {
         this.layer(succ, layer + 1);
@@ -360,7 +362,7 @@ export class Graph {
           loopHeaders.add(block.number);
         }
 
-        let currentLoopHeader = asLH(this.byNum[block.loopID]);
+        let currentLoopHeader = asLH(this.blocksByNum.get(block.loopID));
         while (isTrueLH(currentLoopHeader)) {
           const existing = loopDummies.find(d => d.loopID === currentLoopHeader.number);
           if (existing) {
@@ -407,7 +409,7 @@ export class Graph {
 
         // Create dummy nodes for backedges
         for (const loopDummy of loopDummies.filter(d => d.block === block)) {
-          const backedge = asLH(this.byNum[loopDummy.loopID]).backedge;
+          const backedge = asLH(this.blocksByNum.get(loopDummy.loopID)).backedge;
           const backedgeDummy: DummyNode = {
             id: nodeID++,
             pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
@@ -540,7 +542,7 @@ export class Graph {
             continue;
           }
 
-          const loopHeader = node.block.loopID !== null ? asLH(this.byNum[node.block.loopID]) : null;
+          const loopHeader = node.block.loopID !== null ? asLH(this.blocksByNum.get(node.block.loopID)) : null;
           if (loopHeader) {
             const loopHeaderNode = loopHeader.layoutNode;
             node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x);
@@ -943,6 +945,7 @@ export class Graph {
       row.setAttribute("data-lir-op-id", `${ins.id}`);
 
       const num = document.createElement("td");
+      num.classList.add("ig-op-num");
       num.innerText = String(ins.id);
       row.appendChild(num);
 
@@ -951,6 +954,7 @@ export class Graph {
       row.appendChild(opcode);
 
       const type = document.createElement("td");
+      type.classList.add("ig-op-type");
       row.appendChild(type);
 
       return row;
