@@ -71,8 +71,26 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     graphDiv.current.style.transform = `translate(${clampedTx}px, ${clampedTy}px) scale(${zoom.current})`;
   }
 
-  async function animateToTarget() {
+  // Pans and zooms the graph such that the given x and y are in the top left
+  // of the viewport at the requested zoom level.
+  async function goToCoordinates(x: number, y: number, zm: number, animate = true) {
+    const newTx = -x * zm;
+    const newTy = -y * zm;
+
+    if (!animate) {
+      animating.current = false;
+      tx.current = newTx;
+      ty.current = newTy;
+      zoom.current = zm;
+      updatePanAndZoom();
+      return;
+    }
+
+    targetTx.current = newTx;
+    targetTy.current = newTy;
+    targetZoom.current = zm;
     if (animating.current) {
+      // Do not start another animation loop.
       return;
     }
 
@@ -102,9 +120,32 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         ty.current = targetTy.current;
         zoom.current = targetZoom.current;
         animating.current = false;
+        updatePanAndZoom();
         break;
       }
     }
+  }
+
+  function jumpToBlock(block: number, zm?: number, animate = true) {
+    const z = zm ?? zoom.current;
+
+    if (!container.current) {
+      return;
+    }
+
+    const selected = graph.current?.blocksByNum.get(block);
+    if (!selected) {
+      return;
+    }
+
+    const containerRect = container.current.getBoundingClientRect();
+    const viewportWidth = containerRect.width / z;
+    const viewportHeight = containerRect.height / z;
+    const xPadding = Math.max(20 / z, (viewportWidth - selected.layoutNode.size.x) / 2);
+    const yPadding = Math.max(100 / z, (viewportHeight - selected.layoutNode.size.y) / 2);
+    const x = selected.layoutNode.pos.x - xPadding;
+    const y = selected.layoutNode.pos.y - yPadding;
+    goToCoordinates(x, y, z, animate);
   }
 
   function redrawGraph(pass: Pass | undefined) {
@@ -148,6 +189,27 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       switch (e.key) {
+        case "a":
+        case "d": {
+          if (!graph.current) {
+            break;
+          }
+
+          const selected = graph.current.lastSelectedBlock;
+          const blocks = graph.current.blocksInOrder;
+          if (selected === undefined) {
+            let block = blocks[e.key === "d" ? 0 : blocks.length - 1].number;
+            graph.current.setSelection([], block);
+          } else {
+            const indexOfSelected = blocks.findIndex(b => b.number === selected);
+            if (e.key === "a" && 1 <= indexOfSelected) {
+              graph.current.setSelection([], blocks[indexOfSelected - 1].number);
+            } else if (e.key === "d" && indexOfSelected <= graph.current.blocks.length - 2) {
+              graph.current.setSelection([], blocks[indexOfSelected + 1].number);
+            }
+          }
+          jumpToBlock(graph.current.lastSelectedBlock ?? -1);
+        } break;
         case "f": {
           setPassNumber(pn => Math.min(pn + 1, func.passes.length - 1));
         } break;
@@ -157,17 +219,12 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         case "c": {
           const selected = graph.current?.blocksByNum.get(graph.current?.lastSelectedBlock ?? -1);
           if (selected && container.current) {
-            const containerRect = container.current.getBoundingClientRect();
-            const xPadding = Math.max(20, (containerRect.width - selected.layoutNode.size.x) / 2);
-            const yPadding = Math.max(100, (containerRect.height - selected.layoutNode.size.y) / 2);
-            const x = selected.layoutNode.pos.x - xPadding;
-            const y = selected.layoutNode.pos.y - yPadding;
-            targetTx.current = -x;
-            targetTy.current = -y;
-            targetZoom.current = 1;
-            animateToTarget();
+            jumpToBlock(selected.number, 1);
           }
-        }
+        } break;
+        case "b": {
+          goToCoordinates(387, 558, zoom.current);
+        } break;
       }
     };
     window.addEventListener("keydown", handler);
@@ -254,7 +311,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
       onPointerUp={e => {
         e.currentTarget.releasePointerCapture(e.pointerId);
 
-        const THRESHOLD = 1;
+        const THRESHOLD = 2;
         const deltaX = startMouseX.current - e.clientX;
         const deltaY = startMouseY.current - e.clientY;
         if (Math.abs(deltaX) <= THRESHOLD && Math.abs(deltaY) <= THRESHOLD) {

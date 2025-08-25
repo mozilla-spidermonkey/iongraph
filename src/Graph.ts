@@ -109,6 +109,7 @@ export class Graph {
   container: HTMLElement;
   pass: Pass;
   blocks: Block[];
+  blocksInOrder: Block[];
   blocksByNum: Map<number, Block>;
   loops: LoopHeader[];
 
@@ -116,7 +117,7 @@ export class Graph {
   height: number;
 
   selectedBlocks: Set<number>;
-  lastSelectedBlock: number | null;
+  lastSelectedBlock: number | undefined;
 
   constructor(container: HTMLElement, pass: Pass) {
     const blocks = pass.mir.blocks as Block[];
@@ -124,6 +125,7 @@ export class Graph {
     this.container = container;
     this.pass = pass;
     this.blocks = blocks;
+    this.blocksInOrder = [...blocks].sort((a, b) => a.number - b.number);
     this.blocksByNum = new Map();
 
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
@@ -132,7 +134,7 @@ export class Graph {
     this.height = 0;
 
     this.selectedBlocks = new Set();
-    this.lastSelectedBlock = null;
+    this.lastSelectedBlock = undefined;
 
     const lirBlocks = new Map<number, LIRBlock>();
     for (const lir of pass.lir.blocks) {
@@ -1142,14 +1144,18 @@ export class Graph {
     });
   }
 
+  hasBlock(num: number): boolean {
+    return this.blocksByNum.has(num);
+  }
+
   setSelection(blocks: number[], lastSelected?: number) {
     this.selectedBlocks.clear();
-    for (const block of blocks) {
-      this.selectedBlocks.add(block);
-      if (lastSelected === block) {
-        this.lastSelectedBlock = block;
+    for (const block of [...blocks, lastSelected ?? -1]) {
+      if (this.blocksByNum.has(block)) {
+        this.selectedBlocks.add(block);
       }
     }
+    this.lastSelectedBlock = this.blocksByNum.has(lastSelected ?? -1) ? lastSelected : undefined;
     this.renderSelection();
   }
 }
