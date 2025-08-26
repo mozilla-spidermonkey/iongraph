@@ -278,14 +278,6 @@ export class Graph {
       }
     }
 
-    function pruneNode(node: LayoutNode) {
-      for (const dst of node.dstNodes) {
-        const indexOfSelfInDst = dst.srcNodes.indexOf(node);
-        assert(indexOfSelfInDst !== -1);
-        dst.srcNodes.splice(indexOfSelfInDst, 1);
-      }
-    }
-
     let blocksByLayer: Block[][];
     {
       const blocksByLayerObj: { [layer: number]: Block[] } = {};
@@ -364,12 +356,7 @@ export class Graph {
         block: Block,
       }
       const loopDummies: LoopDummy[] = [];
-      const loopHeaders = new Set<number>();
       for (const block of blocks) {
-        if (isTrueLH(block)) {
-          loopHeaders.add(block.number);
-        }
-
         let currentLoopHeader = asLH(this.blocksByNum.get(block.loopID));
         while (isTrueLH(currentLoopHeader)) {
           const existing = loopDummies.find(d => d.loopID === currentLoopHeader.number);
@@ -378,11 +365,8 @@ export class Graph {
             // it. Update which block should get the dummy.
             existing.block = block;
           } else {
-            if (!loopHeaders.has(currentLoopHeader.number)) {
-              // This loop has not been seen before, and it didn't start on
-              // this layer, so track it.
-              loopDummies.push({ loopID: currentLoopHeader.number, block: block });
-            }
+            // This loop has not been seen before, so track it.
+            loopDummies.push({ loopID: currentLoopHeader.number, block: block });
           }
 
           const parentLoop = currentLoopHeader.parentLoop;
@@ -858,7 +842,7 @@ export class Graph {
 
             const al = Math.min(joint.x1, joint.x2), ar = Math.max(joint.x1, joint.x2);
             const bl = Math.min(otherJoint.x1, otherJoint.x2), br = Math.max(otherJoint.x1, otherJoint.x2);
-            const overlaps = ar > bl && al < br;
+            const overlaps = ar >= bl && al <= br;
             if (overlaps) {
               overlapsWithAnyInThisTrack = true;
               break;
@@ -1081,14 +1065,16 @@ export class Graph {
             const y2 = header.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
             const arrow = loopHeaderArrow(x1, y1, x2, y2);
             svg.appendChild(arrow);
-          } else if (dst.block?.attributes.includes("backedge")) {
-            // Draw backedge arrow
-            const backedge = dst.block;
+          } else if (!dst.block && dst.dstNodes[0].block?.attributes.includes("backedge")) {
+            // Draw backedge arrow (skipping the topmost dummy)
+            const backedge = dst.dstNodes[0].block;
             const x2 = backedge.layoutNode.pos.x + backedge.size.x;
             const y2 = backedge.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
-            const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2;
             const arrow = arrowToBackedge(x1, y1, x2, y2);
             svg.appendChild(arrow);
+          } else if (dst.block?.attributes.includes("backedge")) {
+            // Is the topmost backedge dummy; ignore since we drew past it previously.
+            assert(!node.block);
           } else if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
             if (node.block === null) {
               // Draw upward arrow between dummies
@@ -1110,7 +1096,6 @@ export class Graph {
             const y2 = dst.pos.y;
             const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
             const arrow = downwardArrow(x1, y1, x2, y2, ym, dst.block !== null);
-            // arrow.setAttribute("data-edge", `${block.number} -> ${succ.number}`);
             svg.appendChild(arrow);
           }
         }
@@ -1157,6 +1142,14 @@ export class Graph {
     }
     this.lastSelectedBlock = this.blocksByNum.has(lastSelected ?? -1) ? lastSelected : undefined;
     this.renderSelection();
+  }
+}
+
+function pruneNode(node: LayoutNode) {
+  for (const dst of node.dstNodes) {
+    const indexOfSelfInDst = dst.srcNodes.indexOf(node);
+    assert(indexOfSelfInDst !== -1);
+    dst.srcNodes.splice(indexOfSelfInDst, 1);
   }
 }
 
