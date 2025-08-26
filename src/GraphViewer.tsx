@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Graph } from "./Graph";
 
-import type { Func, MIRBlock, Pass } from "./iongraph";
-import { classes } from "./classes";
-import { clamp, filerp, must } from "./utils";
-import { tweak } from "./tweak";
+import { classes } from "./classes.js";
+import { Graph } from "./Graph.js";
+import type { Func, Pass } from "./iongraph.js";
+import { clamp, filerp, must } from "./utils.js";
 
 const ZOOM_SENSITIVITY = 1.10;
 const WHEEL_DELTA_SCALE = 0.01;

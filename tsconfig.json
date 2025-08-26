@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES6", // Output modern JS
-    "module": "ESNext", // Keep ES modules
-    "moduleResolution": "node",
+    "module": "node16", // Require extensions on relative imports. Should still be bundler-compatible.
     "jsx": "react-jsx", // Use React JSX transform (React 17+)
     "rootDir": "src",
     "strict": true,

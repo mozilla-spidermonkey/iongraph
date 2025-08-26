@@ -1,6 +1,6 @@
-import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph";
-import { assert, must } from "./utils";
-import { tweak } from "./tweak";
+import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph.js";
+import { tweak } from "./tweak.js";
+import { assert, must } from "./utils.js";
 
 const DEBUG = tweak("Debug?", 0, { min: 0, max: 1 });
 

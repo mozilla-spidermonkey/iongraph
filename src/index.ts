@@ -1,2 +1,2 @@
-export * from "./Graph";
-export * from "./GraphViewer";
+export * from "./Graph.js";
+export * from "./GraphViewer.js";
