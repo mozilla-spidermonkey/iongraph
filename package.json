@@ -1,6 +1,12 @@
 {
   "name": "iongraph-web",
   "version": "0.1.0",
+  "author": "Ben Visness",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bvisness/iongraph-web.git"
+  },
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "files": [
