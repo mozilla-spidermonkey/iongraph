@@ -11,7 +11,9 @@
       "DOM",
       "ES2020"
     ],
-    "noEmit": true
+    "outDir": "dist",
+    "declaration": true,
+    "sourceMap": true,
   },
   "include": [
     "src/**/*"
