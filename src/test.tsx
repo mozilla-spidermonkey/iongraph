@@ -3,6 +3,8 @@ import { GraphViewer } from './GraphViewer';
 import { ChangeEvent, useEffect, useState } from 'react';
 
 import type { IonJSON, MIRBlock } from './iongraph';
+import { globalTweaks } from './tweak';
+import { must } from './utils';
 
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;
