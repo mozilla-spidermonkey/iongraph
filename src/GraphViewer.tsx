@@ -5,7 +5,7 @@ import { Graph } from "./Graph.js";
 import type { Func, Pass } from "./iongraph.js";
 import { clamp, filerp, must } from "./utils.js";
 
-const ZOOM_SENSITIVITY = 1.10;
+const ZOOM_SENSITIVITY = 1.50;
 const WHEEL_DELTA_SCALE = 0.01;
 const MAX_ZOOM = 1;
 const MIN_ZOOM = 0.10;
@@ -205,6 +205,86 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     updatePanAndZoom();
   });
 
+  // Hook up pan and zoom stuff using actual non-passive events because React
+  // is actually <redacted>
+  useEffect(() => {
+    const wheelHandler = (e: WheelEvent) => {
+      e.preventDefault();
+
+      let newZoom = zoom.current;
+      if (e.ctrlKey) {
+        newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom.current * Math.pow(ZOOM_SENSITIVITY, -e.deltaY * WHEEL_DELTA_SCALE)));
+        const zoomDelta = (newZoom / zoom.current) - 1;
+        zoom.current = newZoom;
+
+        const { x: gx, y: gy } = must(container.current).getBoundingClientRect();
+        const mouseOffsetX = (e.clientX - gx) - tx.current;
+        const mouseOffsetY = (e.clientY - gy) - ty.current;
+        tx.current -= mouseOffsetX * zoomDelta;
+        ty.current -= mouseOffsetY * zoomDelta;
+      } else {
+        tx.current -= e.deltaX;
+        ty.current -= e.deltaY;
+      }
+
+      const [clampedTx, clampedTy] = clampTranslation(tx.current, ty.current, newZoom);
+      tx.current = clampedTx;
+      ty.current = clampedTy;
+
+      animating.current = false;
+      updatePanAndZoom();
+    };
+    const pointerDownHandler = (e: PointerEvent) => {
+      e.preventDefault();
+      must(container.current).setPointerCapture(e.pointerId);
+      startMouseX.current = e.clientX;
+      startMouseY.current = e.clientY;
+      lastMouseX.current = e.clientX;
+      lastMouseY.current = e.clientY;
+      animating.current = false;
+    };
+    const pointerMoveHandler = (e: PointerEvent) => {
+      if (!must(container.current).hasPointerCapture(e.pointerId)) {
+        return;
+      }
+
+      const dx = (e.clientX - lastMouseX.current);
+      const dy = (e.clientY - lastMouseY.current);
+      tx.current += dx;
+      ty.current += dy;
+      lastMouseX.current = e.clientX;
+      lastMouseY.current = e.clientY;
+
+      const [clampedTx, clampedTy] = clampTranslation(tx.current, ty.current, zoom.current);
+      tx.current = clampedTx;
+      ty.current = clampedTy;
+
+      animating.current = false;
+      updatePanAndZoom();
+    };
+    const pointerUpHandler = (e: PointerEvent) => {
+      must(container.current).releasePointerCapture(e.pointerId);
+
+      const THRESHOLD = 2;
+      const deltaX = startMouseX.current - e.clientX;
+      const deltaY = startMouseY.current - e.clientY;
+      if (Math.abs(deltaX) <= THRESHOLD && Math.abs(deltaY) <= THRESHOLD) {
+        graph.current?.setSelection([]);
+      }
+
+      animating.current = false;
+    };
+
+    container.current?.addEventListener("wheel", wheelHandler);
+    container.current?.addEventListener("pointerdown", pointerDownHandler);
+    container.current?.addEventListener("pointermove", pointerMoveHandler);
+    return () => {
+      container.current?.removeEventListener("wheel", wheelHandler);
+      container.current?.removeEventListener("pointerdown", pointerDownHandler);
+      container.current?.removeEventListener("pointermove", pointerMoveHandler);
+    }
+  });
+
   // Hook up keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -281,65 +361,6 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
       ref={container}
       className="ig-flex-grow-1 ig-overflow-hidden"
       style={{ position: "relative" }}
-      onWheel={e => {
-        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom.current * Math.pow(ZOOM_SENSITIVITY, -e.deltaY * WHEEL_DELTA_SCALE)));
-        const zoomRatio = newZoom / zoom.current;
-        const zoomDelta = zoomRatio - 1;
-        zoom.current = newZoom;
-
-        const { x: gx, y: gy } = e.currentTarget.getBoundingClientRect();
-        const mouseOffsetX = (e.clientX - gx) - tx.current;
-        const mouseOffsetY = (e.clientY - gy) - ty.current;
-        tx.current -= mouseOffsetX * zoomDelta;
-        ty.current -= mouseOffsetY * zoomDelta;
-
-        const [clampedTx, clampedTy] = clampTranslation(tx.current, ty.current, zoomRatio);
-        tx.current = clampedTx;
-        ty.current = clampedTy;
-
-        animating.current = false;
-        updatePanAndZoom();
-      }}
-      onPointerDown={e => {
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        startMouseX.current = e.clientX;
-        startMouseY.current = e.clientY;
-        lastMouseX.current = e.clientX;
-        lastMouseY.current = e.clientY;
-        animating.current = false;
-      }}
-      onPointerMove={e => {
-        if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
-          return;
-        }
-
-        const dx = (e.clientX - lastMouseX.current);
-        const dy = (e.clientY - lastMouseY.current);
-        tx.current += dx;
-        ty.current += dy;
-        lastMouseX.current = e.clientX;
-        lastMouseY.current = e.clientY;
-
-        const [clampedTx, clampedTy] = clampTranslation(tx.current, ty.current, zoom.current);
-        tx.current = clampedTx;
-        ty.current = clampedTy;
-
-        animating.current = false;
-        updatePanAndZoom();
-      }}
-      onPointerUp={e => {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-
-        const THRESHOLD = 2;
-        const deltaX = startMouseX.current - e.clientX;
-        const deltaY = startMouseY.current - e.clientY;
-        if (Math.abs(deltaX) <= THRESHOLD && Math.abs(deltaY) <= THRESHOLD) {
-          graph.current?.setSelection([]);
-        }
-
-        animating.current = false;
-      }}
     >
       <div ref={graphDiv} style={{
         transformOrigin: "top left",
