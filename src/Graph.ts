@@ -2,23 +2,21 @@ import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from ".
 import { tweak } from "./tweak.js";
 import { assert, must } from "./utils.js";
 
-const DEBUG = tweak("Debug?", 0, { min: 0, max: 1 });
+const DEBUG = 0;
 
-const BLOCK_GAP = tweak("Block Gap", 44);
+const CONTENT_PADDING = 20;
+const BLOCK_GAP = 44;
+const PORT_START = 16;
+const PORT_SPACING = 60;
+const ARROW_RADIUS = 12;
+const TRACK_PADDING = 36;
+const JOINT_SPACING = 16;
+const HEADER_ARROW_PUSHDOWN = 16;
+const BACKEDGE_ARROW_PUSHOUT = 32;
 
-const PORT_START = tweak("Port Start", 16);
-const PORT_SPACING = tweak("Port Spacing", 60);
-const ARROW_RADIUS = tweak("Arrow Radius", 12);
-const TRACK_PADDING = tweak("Track Padding", 36);
-const JOINT_SPACING = tweak("Joint Spacing", 16);
-const HEADER_ARROW_PUSHDOWN = tweak("Header Arrow Pushdown", 16);
-const BACKEDGE_ARROW_PUSHOUT = tweak("Backedge Arrow Pushout", 32);
 const LAYOUT_ITERATIONS = tweak("Layout Iterations", 2, { min: 0, max: 6 });
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
 const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 4, { min: 0, max: 10 });
-
-const CONTENT_PADDING = 20;
-
 const STOP_AT_PASS = tweak("Stop At Pass", 30, { min: 0, max: 30 });
 
 interface Vec2 {
