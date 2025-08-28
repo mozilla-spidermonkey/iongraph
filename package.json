@@ -13,6 +13,7 @@
     "dist"
   ],
   "scripts": {
+    "build-all": "npm run build-package && npm run build-www",
     "build-package": "node build-package.mjs",
     "build-www": "node build-www.mjs",
     "serve": "node build-www.mjs --serve"
