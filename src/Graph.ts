@@ -103,6 +103,17 @@ const log = new Proxy(console, {
   }
 });
 
+export interface GraphNavigation {
+  /** Chain of nodes visited by navigating up and down */
+  visited: number[],
+
+  /** Current index into {@link visited} */
+  currentIndex: number,
+
+  /** Current set of sibling nodes to navigate sideways */
+  siblings: number[],
+}
+
 export class Graph {
   container: HTMLElement;
   pass: Pass;
@@ -113,9 +124,11 @@ export class Graph {
 
   width: number;
   height: number;
+  numLayers: number;
 
   selectedBlocks: Set<number>;
   lastSelectedBlock: number | undefined;
+  nav: GraphNavigation;
 
   constructor(container: HTMLElement, pass: Pass) {
     const blocks = pass.mir.blocks as Block[];
@@ -130,9 +143,15 @@ export class Graph {
 
     this.width = 0;
     this.height = 0;
+    this.numLayers = 0;
 
     this.selectedBlocks = new Set();
     this.lastSelectedBlock = undefined;
+    this.nav = {
+      visited: [],
+      currentIndex: -1,
+      siblings: [],
+    };
 
     const lirBlocks = new Map<number, LIRBlock>();
     for (const lir of pass.lir.blocks) {
@@ -241,6 +260,7 @@ export class Graph {
     }
 
     block.layer = Math.max(block.layer, layer);
+    this.numLayers = Math.max(block.layer + 1, this.numLayers);
 
     let loopHeader: LoopHeader | null = asLH(this.blocksByNum.get(block.loopID));
     while (loopHeader) {
@@ -1004,9 +1024,7 @@ export class Graph {
       if (!e.shiftKey) {
         this.selectedBlocks.clear();
       }
-      this.selectedBlocks.add(block.number);
-      this.lastSelectedBlock = block.number;
-      this.renderSelection();
+      this.setSelection([], block.number);
     });
 
     return el;
@@ -1132,6 +1150,23 @@ export class Graph {
   }
 
   setSelection(blocks: number[], lastSelected?: number) {
+    this.setSelectionRaw(blocks, lastSelected);
+    if (lastSelected === undefined) {
+      this.nav = {
+        visited: [],
+        currentIndex: -1,
+        siblings: [],
+      };
+    } else {
+      this.nav = {
+        visited: [lastSelected],
+        currentIndex: 0,
+        siblings: [lastSelected],
+      };
+    }
+  }
+
+  private setSelectionRaw(blocks: number[], lastSelected: number | undefined) {
     this.selectedBlocks.clear();
     for (const block of [...blocks, lastSelected ?? -1]) {
       if (this.blocksByNum.has(block)) {
@@ -1140,6 +1175,81 @@ export class Graph {
     }
     this.lastSelectedBlock = this.blocksByNum.has(lastSelected ?? -1) ? lastSelected : undefined;
     this.renderSelection();
+  }
+
+  navigate(dir: "down" | "up" | "left" | "right") {
+    const selected = this.lastSelectedBlock;
+
+    if (dir === "down" || dir === "up") {
+      // Vertical navigation
+      if (selected === undefined) {
+        const blocks = this.blocksInOrder;
+        // No block selected; start navigation anew
+        const rootBlocks = blocks.filter(b => b.predecessors.length === 0);
+        const leafBlocks = blocks.filter(b => b.successors.length === 0);
+        const fauxSiblings = dir === "down" ? rootBlocks : leafBlocks;
+        const firstBlock = fauxSiblings[0];
+        assert(firstBlock);
+        this.setSelectionRaw([], firstBlock.number);
+        this.nav = {
+          visited: [firstBlock.number],
+          currentIndex: 0,
+          siblings: fauxSiblings.map(b => b.number),
+        };
+      } else {
+        // Move to the current block's successors or predecessors,
+        // respecting the visited stack
+        const currentBlock = must(this.blocksByNum.get(selected));
+        const nextSiblings = dir === "down" ? currentBlock.successors : currentBlock.predecessors;
+        assert(this.nav.siblings.includes(currentBlock.number), "expected current block to be in siblings array");
+
+        // If we have navigated to a different sibling at our current point in
+        // the stack, prune the stack in the direction we are headed.
+        if (currentBlock.number !== this.nav.visited[this.nav.currentIndex]) {
+          this.nav.visited[this.nav.currentIndex] = currentBlock.number;
+          if (dir === "down") {
+            this.nav.visited.splice(this.nav.currentIndex + 1);
+          } else {
+            this.nav.visited.splice(0, this.nav.currentIndex);
+            this.nav.currentIndex = 0;
+          }
+        }
+
+        const nextIndex = this.nav.currentIndex + (dir === "down" ? 1 : -1);
+        if (0 <= nextIndex && nextIndex < this.nav.visited.length) {
+          // Move to existing block in visited stack
+          this.nav.currentIndex = nextIndex;
+          this.nav.siblings = nextSiblings;
+          assert(this.nav.siblings.includes(this.nav.visited[this.nav.currentIndex]), "array of siblings should include the currently selected node");
+        } else {
+          // Push a new block onto the visited stack (either at the front or back)
+          const next: number | undefined = nextSiblings[0];
+          if (next !== undefined) {
+            if (dir === "down") {
+              this.nav.visited.push(next);
+              this.nav.currentIndex += 1;
+              assert(this.nav.currentIndex === this.nav.visited.length - 1);
+            } else {
+              this.nav.visited.unshift(next);
+              assert(this.nav.currentIndex === 0);
+            }
+            this.nav.siblings = nextSiblings;
+          }
+        }
+
+        this.setSelectionRaw([], this.nav.visited[this.nav.currentIndex]);
+      }
+    } else {
+      // Horizontal navigation
+      if (selected !== undefined) {
+        const i = this.nav.siblings.indexOf(selected);
+        assert(i >= 0, "currently selected node should be in siblings array");
+        const nextI = i + (dir === "right" ? 1 : -1);
+        if (0 <= nextI && nextI < this.nav.siblings.length) {
+          this.setSelectionRaw([], this.nav.siblings[nextI]);
+        }
+      }
+    }
   }
 }
 

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { classes } from "./classes.js";
 import { Graph } from "./Graph.js";
-import type { Func, Pass } from "./iongraph.js";
-import { clamp, filerp, must } from "./utils.js";
+import type { Func, MIRBlock, Pass } from "./iongraph.js";
+import { assert, clamp, filerp, must } from "./utils.js";
 
 const ZOOM_SENSITIVITY = 1.50;
 const WHEEL_DELTA_SCALE = 0.01;
@@ -278,10 +278,12 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     container.current?.addEventListener("wheel", wheelHandler);
     container.current?.addEventListener("pointerdown", pointerDownHandler);
     container.current?.addEventListener("pointermove", pointerMoveHandler);
+    container.current?.addEventListener("pointerup", pointerUpHandler);
     return () => {
       container.current?.removeEventListener("wheel", wheelHandler);
       container.current?.removeEventListener("pointerdown", pointerDownHandler);
       container.current?.removeEventListener("pointermove", pointerMoveHandler);
+      container.current?.removeEventListener("pointerup", pointerUpHandler);
     }
   });
 
@@ -289,26 +291,15 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       switch (e.key) {
+        case "w":
+        case "s": {
+          graph.current?.navigate(e.key === "s" ? "down" : "up");
+          jumpToBlock(graph.current?.lastSelectedBlock ?? -1);
+        } break;
         case "a":
         case "d": {
-          if (!graph.current) {
-            break;
-          }
-
-          const selected = graph.current.lastSelectedBlock;
-          const blocks = graph.current.blocksInOrder;
-          if (selected === undefined) {
-            let block = blocks[e.key === "d" ? 0 : blocks.length - 1].number;
-            graph.current.setSelection([], block);
-          } else {
-            const indexOfSelected = blocks.findIndex(b => b.number === selected);
-            if (e.key === "a" && 1 <= indexOfSelected) {
-              graph.current.setSelection([], blocks[indexOfSelected - 1].number);
-            } else if (e.key === "d" && indexOfSelected <= graph.current.blocks.length - 2) {
-              graph.current.setSelection([], blocks[indexOfSelected + 1].number);
-            }
-          }
-          jumpToBlock(graph.current.lastSelectedBlock ?? -1);
+          graph.current?.navigate(e.key === "d" ? "right" : "left");
+          jumpToBlock(graph.current?.lastSelectedBlock ?? -1);
         } break;
         case "f": {
           setPassNumber(pn => Math.min(pn + 1, func.passes.length - 1));
@@ -327,6 +318,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         } break;
       }
     };
+
     window.addEventListener("keydown", handler);
     return () => {
       window.removeEventListener("keydown", handler);
