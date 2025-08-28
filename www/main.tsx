@@ -1,8 +1,8 @@
 import { ChangeEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { GraphViewer } from './GraphViewer.js';
-import type { IonJSON, MIRBlock } from './iongraph.js';
+import { GraphViewer } from '../src/GraphViewer.js';
+import type { IonJSON, MIRBlock } from '../src/iongraph.js';
 
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;

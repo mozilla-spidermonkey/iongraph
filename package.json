@@ -13,8 +13,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "node build.mjs",
-    "serve": "node serve.mjs"
+    "build-package": "node build-package.mjs",
+    "build-www": "node build-www.mjs",
+    "serve": "node build-www.mjs --serve"
   },
   "peerDependencies": {
     "react": ">=18",
