@@ -25,6 +25,14 @@ jobs:
     - name: Run build
       run: npm run build-all
 
+    # also prepare to deploy GH pages on main
+    - if: github.ref == 'refs/heads/main'
+      uses: actions/configure-pages@v5
+    - if: github.ref == 'refs/heads/main'
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: "./dist-www"
+
   deploy:
     name: Deploy
     if: github.ref == 'refs/heads/main' && github.repository_owner == 'mozilla-spidermonkey'
