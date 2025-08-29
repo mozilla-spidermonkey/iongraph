@@ -287,10 +287,8 @@ export class Graph {
   }
 
   private makeLayoutNodes(): LayoutNode[][] {
-    function connectNodes(from: LayoutNode, to: LayoutNode) {
-      if (!from.dstNodes.includes(to)) {
-        from.dstNodes.push(to);
-      }
+    function connectNodes(from: LayoutNode, fromPort: number, to: LayoutNode) {
+      from.dstNodes[fromPort] = to;
       if (!to.srcNodes.includes(from)) {
         to.srcNodes.push(from);
       }
@@ -313,6 +311,7 @@ export class Graph {
 
     type IncompleteEdge = {
       src: LayoutNode,
+      srcPort: number,
       dstBlock: Block,
     };
 
@@ -343,7 +342,7 @@ export class Graph {
         const existingDummy = dummiesByDest.get(edge.dstBlock.number)
         if (existingDummy) {
           // Collapse multiple edges into a single dummy node.
-          connectNodes(edge.src, existingDummy);
+          connectNodes(edge.src, edge.srcPort, existingDummy);
           dummy = existingDummy;
         } else {
           // Create a new dummy node.
@@ -358,7 +357,7 @@ export class Graph {
             jointOffsets: [],
             flags: 0,
           };
-          connectNodes(edge.src, newDummy);
+          connectNodes(edge.src, edge.srcPort, newDummy);
           layoutNodesByLayer[layer].push(newDummy);
           dummiesByDest.set(edge.dstBlock.number, newDummy);
           dummy = newDummy;
@@ -366,6 +365,7 @@ export class Graph {
 
         // Update the active edge with the latest dummy.
         edge.src = dummy;
+        edge.srcPort = 0;
       }
 
       // Track which blocks will get backedge dummy nodes.
@@ -396,7 +396,7 @@ export class Graph {
       }
 
       // Create real nodes for each block on the layer.
-      const backedgeEdges: [Block, Block][] = [];
+      const backedgeEdges: IncompleteEdge[] = [];
       for (const block of blocks) {
         // Create new layout node for block
         const node: BlockNode = {
@@ -411,7 +411,7 @@ export class Graph {
         };
         for (const edge of terminatingEdges) {
           if (edge.dstBlock === block) {
-            connectNodes(edge.src, node);
+            connectNodes(edge.src, edge.srcPort, node);
           }
         }
         layoutNodesByLayer[layer].push(node);
@@ -431,30 +431,29 @@ export class Graph {
             jointOffsets: [],
             flags: 0,
           };
-          connectNodes(backedgeDummy, latestDummyForBackedge.get(backedge) ?? backedge.layoutNode);
+          connectNodes(backedgeDummy, 0, latestDummyForBackedge.get(backedge) ?? backedge.layoutNode);
           layoutNodesByLayer[layer].push(backedgeDummy);
           latestDummyForBackedge.set(backedge, backedgeDummy);
         }
 
         if (block.attributes.includes("backedge")) {
           // Connect backedge to loop header immediately
-          connectNodes(block.layoutNode, block.succs[0].layoutNode);
+          connectNodes(block.layoutNode, 0, block.succs[0].layoutNode);
         } else {
-          for (const succ of block.succs) {
+          for (const [i, succ] of block.succs.entries()) {
             if (succ.attributes.includes("backedge")) {
               // Track this edge to be added after all the backedge dummies on
               // this row have been added.
-              backedgeEdges.push([block, succ]);
+              backedgeEdges.push({ src: node, srcPort: i, dstBlock: succ });
             } else {
-              activeEdges.push({ src: node, dstBlock: succ });
+              activeEdges.push({ src: node, srcPort: i, dstBlock: succ });
             }
           }
         }
       }
-      for (const [block, backedge] of backedgeEdges) {
-        const backedgeDummy = latestDummyForBackedge.get(backedge);
-        assert(backedgeDummy);
-        connectNodes(block.layoutNode, backedgeDummy);
+      for (const edge of backedgeEdges) {
+        const backedgeDummy = must(latestDummyForBackedge.get(edge.dstBlock));
+        connectNodes(edge.src, edge.srcPort, backedgeDummy);
       }
     }
 
@@ -503,6 +502,20 @@ export class Graph {
           nodes[i].flags |= RIGHTMOST_DUMMY;
         } else {
           break;
+        }
+      }
+    }
+
+    // Ensure that our nodes are all ok
+    for (const layer of layoutNodesByLayer) {
+      for (const node of layer) {
+        if (node.block) {
+          assert(node.dstNodes.length === node.block.successors.length, `expected node ${node.id} for block ${node.block.number} to have ${node.block.successors.length} destination nodes, but got ${node.dstNodes.length} instead`);
+        } else {
+          assert(node.dstNodes.length === 1, `expected dummy node ${node.id} to have only one destination node, but got ${node.dstNodes.length} instead`);
+        }
+        for (let i = 0; i < node.dstNodes.length; i++) {
+          assert(node.dstNodes[i] !== undefined, `dst slot ${i} of node ${node.id} was undefined`);
         }
       }
     }
