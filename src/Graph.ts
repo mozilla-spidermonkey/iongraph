@@ -1026,6 +1026,16 @@ export class Graph {
     }
     insnsContainer.appendChild(insns);
 
+    if (block.successors.length === 2) {
+      for (const [i, label] of [1, 0].entries()) {
+        const edgeLabel = document.createElement("div");
+        edgeLabel.innerText = `${label}`;
+        edgeLabel.classList.add("ig-edge-label");
+        edgeLabel.style.left = `${PORT_START + PORT_SPACING * i}px`;
+        el.appendChild(edgeLabel);
+      }
+    }
+
     // Attach event handlers
     header.addEventListener("pointerdown", e => {
       e.preventDefault();

@@ -353,6 +353,13 @@ a.ig-link-normal {
   }
 }
 
+.ig-edge-label {
+  position: absolute;
+  bottom: -1rem;
+  font-size: 0.8rem;
+  padding-left: 4px;
+}
+
 .ig-ins-att-RecoveredOnBailout {
   color: var(--ig-rob-color);
 }
