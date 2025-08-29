@@ -17,9 +17,9 @@ function findFiles(dir, matches, result) {
   }
 }
 
-function copyFiles(fromDir) {
+function copyFiles(fromDir, pattern) {
   const files = [];
-  findFiles(fromDir, /\.(html|css)$/, files);
+  findFiles(fromDir, pattern, files);
   for (const file of files) {
     const dest = join(outDir, relative(fromDir, file));
     copyFileSync(file, dest);
@@ -28,8 +28,8 @@ function copyFiles(fromDir) {
 
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
-copyFiles("www");
-copyFiles("src");
+copyFiles("www", /\.(html|css|json)$/);
+copyFiles("src", /\.(html|css)$/);
 
 const ctx = await esbuild.context({
   entryPoints: ["www/main.tsx"],
