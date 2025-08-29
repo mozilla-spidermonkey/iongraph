@@ -2,7 +2,7 @@ import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from ".
 import { tweak } from "./tweak.js";
 import { assert, must } from "./utils.js";
 
-const DEBUG = 0;
+const DEBUG = tweak("Debug?", 0, { min: 0, max: 1 });
 
 const CONTENT_PADDING = 20;
 const BLOCK_GAP = 44;
@@ -1201,18 +1201,12 @@ export class Graph {
         // respecting the visited stack
         const currentBlock = must(this.blocksByNum.get(selected));
         const nextSiblings = dir === "down" ? currentBlock.successors : currentBlock.predecessors;
-        assert(this.nav.siblings.includes(currentBlock.number), "expected current block to be in siblings array");
 
         // If we have navigated to a different sibling at our current point in
-        // the stack, prune the stack in the direction we are headed.
+        // the stack, we have gone off our prior track and start a new one.
         if (currentBlock.number !== this.nav.visited[this.nav.currentIndex]) {
-          this.nav.visited[this.nav.currentIndex] = currentBlock.number;
-          if (dir === "down") {
-            this.nav.visited.splice(this.nav.currentIndex + 1);
-          } else {
-            this.nav.visited.splice(0, this.nav.currentIndex);
-            this.nav.currentIndex = 0;
-          }
+          this.nav.visited = [currentBlock.number];
+          this.nav.currentIndex = 0;
         }
 
         const nextIndex = this.nav.currentIndex + (dir === "down" ? 1 : -1);
@@ -1220,7 +1214,6 @@ export class Graph {
           // Move to existing block in visited stack
           this.nav.currentIndex = nextIndex;
           this.nav.siblings = nextSiblings;
-          assert(this.nav.siblings.includes(this.nav.visited[this.nav.currentIndex]), "array of siblings should include the currently selected node");
         } else {
           // Push a new block onto the visited stack (either at the front or back)
           const next: number | undefined = nextSiblings[0];
@@ -1250,6 +1243,9 @@ export class Graph {
         }
       }
     }
+
+    assert(this.nav.visited.length === 0 || this.nav.siblings.includes(this.nav.visited[this.nav.currentIndex]), "expected currently visited node to be in the siblings array");
+    assert(this.lastSelectedBlock === undefined || this.nav.siblings.includes(this.lastSelectedBlock), "expected currently selected block to be in siblings array");
   }
 }
 
