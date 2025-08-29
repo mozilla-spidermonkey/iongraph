@@ -29,13 +29,13 @@
       background-color: white;
     }
   </style>
-  <link rel="stylesheet" href="src/style.css">
+  <link rel="stylesheet" href="./style.css">
 </head>
 
 <body>
   <div id="reactRoot"></div>
   <script type="module">
-    import { render } from "./dist/test.js";
+    import { render } from "./main.js";
 
     new EventSource('/esbuild').addEventListener('change', () => location.reload());
 

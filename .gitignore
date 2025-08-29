@@ -2,3 +2,4 @@ ion*.json
 *.pdf
 node_modules/
 dist/
+dist-www/
