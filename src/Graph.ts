@@ -167,11 +167,6 @@ export class Graph {
       const el = this.renderBlock(block);
       block.el = el;
 
-      block.size = {
-        x: el.clientWidth,
-        y: el.clientHeight,
-      };
-
       block.layer = -1;
       block.loopID = -1;
       if (block.attributes.includes("loopheader")) {
@@ -180,6 +175,21 @@ export class Graph {
         lh.parentLoop = null;
         lh.outgoingEdges = [];
       }
+    }
+
+    // Compute sizes for all blocks. We do this after rendering all blocks so
+    // that layout isn't constantly invalidated by adding new blocks.
+    //
+    // (Although, it's super bullshit that we have to do this, because all of
+    // the blocks are absolutely positioned and therefore have zero impact on
+    // any others. Adding another block to the page should not invalidate all
+    // the layout properties of all the others! We should not see an 85%
+    // speedup just from moving this out of the first loop, but we do!)
+    for (const block of blocks) {
+      block.size = {
+        x: block.el.clientWidth,
+        y: block.el.clientHeight,
+      };
     }
 
     // After putting all blocks in our map, fill out block-to-block references.
