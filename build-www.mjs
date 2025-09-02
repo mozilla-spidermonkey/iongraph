@@ -26,11 +26,14 @@ function copyFiles(fromDir, pattern) {
   }
 }
 
+console.log(`Clearing ${outDir}...`);
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
+console.log("Copying static files...");
 copyFiles("www", /\.(html|css|json)$/);
 copyFiles("src", /\.(html|css)$/);
 
+console.log("Running esbuild...");
 const ctx = await esbuild.context({
   entryPoints: ["www/main.tsx"],
   outdir: outDir,

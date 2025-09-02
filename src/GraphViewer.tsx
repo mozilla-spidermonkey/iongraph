@@ -12,9 +12,10 @@ const MIN_ZOOM = 0.10;
 
 const CLAMP_AMOUNT = 40;
 
-export function GraphViewer({ func, pass: propsPass = 0 }: {
+export function GraphViewer({ func, pass: propsPass = 0, block: propsBlock = null }: {
   func: Func,
   pass?: number,
+  block?: number | null,
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   const graphDiv = useRef<HTMLDivElement | null>(null);
@@ -191,6 +192,11 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
   useEffect(() => {
     const pass: Pass | undefined = func.passes[passNumber];
     redrawGraph(pass);
+    if (propsBlock !== null) {
+      graph.current?.setSelection([], propsBlock);
+      jumpToBlock(propsBlock);
+    }
+
     const handler = () => {
       redrawGraph(pass);
     };
@@ -198,7 +204,7 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     return () => {
       window.removeEventListener("tweak", handler);
     };
-  }, [func, passNumber]);
+  }, [func, passNumber, propsBlock]);
 
   // Update pan and zoom on every React update
   useEffect(() => {

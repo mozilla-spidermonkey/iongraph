@@ -21,6 +21,7 @@ function TestViewer() {
 
   const [func, setFunc] = useState(searchParams.has("func") ? parseInt(searchParams.get("func")!, 10) : 0);
   const [pass, setPass] = useState(searchParams.has("pass") ? parseInt(searchParams.get("pass")!, 10) : 0);
+  const [block, setBlock] = useState<number | null>(searchParams.has("block") ? parseInt(searchParams.get("block")!, 10) : null);
 
   async function fileSelected(e: ChangeEvent<HTMLInputElement>) {
     const input = e.target;
@@ -71,7 +72,7 @@ function TestViewer() {
       </>}
     </div>
     {funcValid && passValid && <div className="ig-relative ig-ba ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
-      <GraphViewer func={ionjson.functions[func]} pass={pass} />
+      <GraphViewer func={ionjson.functions[func]} pass={pass} block={block} />
     </div>}
   </div>;
 }
