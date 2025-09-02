@@ -1133,19 +1133,17 @@ export class Graph {
             const arrow = arrowToBackedge(x1, y1, x2, y2);
             svg.appendChild(arrow);
           } else if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
+            const x2 = dst.pos.x + PORT_START;
+            const y2 = dst.pos.y + ((dst.flags & IMMINENT_BACKEDGE_DUMMY) ? HEADER_ARROW_PUSHDOWN + ARROW_RADIUS : 0);
             if (node.block === null) {
               // Draw upward arrow between dummies
-              const x2 = dst.pos.x + PORT_START;
-              const y2 = dst.pos.y;
               const ym = y1 - TRACK_PADDING; // this really shouldn't matter because we should straighten all these out
               const arrow = upwardArrow(x1, y1, x2, y2, ym, false);
               svg.appendChild(arrow);
             } else {
               // Draw arrow to backedge dummy
-              const x2 = dst.pos.x + PORT_START;
-              const y2 = dst.pos.y + (dst.flags & IMMINENT_BACKEDGE_DUMMY ? HEADER_ARROW_PUSHDOWN + ARROW_RADIUS : 0);
               const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
-              const arrow = arrowToBackedgeDummy(x1, y1, x2, y2, ym);
+              const arrow = arrowFromBlockToBackedgeDummy(x1, y1, x2, y2, ym);
               svg.appendChild(arrow);
             }
           } else {
@@ -1450,14 +1448,14 @@ function arrowToBackedge(
   return g;
 }
 
-function arrowToBackedgeDummy(
+function arrowFromBlockToBackedgeDummy(
   x1: number, y1: number,
   x2: number, y2: number,
   ym: number,
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(y1 + r <= ym && x1 <= x2 && y2 <= y1, `to backedge dummy: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+  assert(y1 + r <= ym && x1 <= x2 && y2 <= y1, `block to backedge dummy: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
