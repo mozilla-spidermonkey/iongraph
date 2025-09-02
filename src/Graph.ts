@@ -91,6 +91,7 @@ type DummyNode = _LayoutNodeCommon & {
 type NodeFlags = number;
 const LEFTMOST_DUMMY: NodeFlags = 1 << 0;
 const RIGHTMOST_DUMMY: NodeFlags = 1 << 1;
+const IMMINENT_BACKEDGE_DUMMY: NodeFlags = 1 << 2;
 
 const log = new Proxy(console, {
   get(target, prop: keyof Console) {
@@ -199,20 +200,26 @@ export class Graph {
   }
 
   private layout(): [LayoutNode[][], number[], number[]] {
-    // Make the first block a pseudo loop header.
-    const firstBlock = this.blocks[0] as LoopHeader; // TODO: Determine first block(s) from graph instead of number
-    firstBlock.loopHeight = 0;
-    firstBlock.parentLoop = null;
-    firstBlock.outgoingEdges = [];
-    Object.defineProperty(firstBlock, "backedge", {
-      get() {
-        throw new Error("Accessed .backedge on a pseudo loop header! Don't do that.");
-      },
-      configurable: true,
-    });
+    const roots = this.blocks.filter(b => b.predecessors.length === 0);
 
-    this.findLoops(firstBlock);
-    this.layer(firstBlock);
+    // Make the roots into pseudo loop headers.
+    for (const r of roots) {
+      const root = r as LoopHeader;
+      root.loopHeight = 0;
+      root.parentLoop = null;
+      root.outgoingEdges = [];
+      Object.defineProperty(root, "backedge", {
+        get() {
+          throw new Error("Accessed .backedge on a pseudo loop header! Don't do that.");
+        },
+        configurable: true,
+      });
+    }
+
+    for (const r of roots) {
+      this.findLoops(r);
+      this.layer(r);
+    }
     const layoutNodesByLayer = this.makeLayoutNodes();
     this.straightenEdges(layoutNodesByLayer);
     const trackHeights = this.finagleJoints(layoutNodesByLayer);
@@ -319,7 +326,7 @@ export class Graph {
 
     const layoutNodesByLayer: LayoutNode[][] = blocksByLayer.map(() => []);
     const activeEdges: IncompleteEdge[] = [];
-    const latestDummyForBackedge = new Map<Block, DummyNode>();
+    const latestDummiesForBackedges = new Map<Block, DummyNode>();
     for (const [layer, blocks] of blocksByLayer.entries()) {
       // Delete any active edges that terminate at this layer, since we do
       // not want to make any dummy nodes for them.
@@ -369,22 +376,22 @@ export class Graph {
       }
 
       // Track which blocks will get backedge dummy nodes.
-      interface LoopDummy {
+      interface PendingLoopDummy {
         loopID: number,
         block: Block,
       }
-      const loopDummies: LoopDummy[] = [];
+      const pendingLoopDummies: PendingLoopDummy[] = [];
       for (const block of blocks) {
         let currentLoopHeader = asLH(this.blocksByNum.get(block.loopID));
         while (isTrueLH(currentLoopHeader)) {
-          const existing = loopDummies.find(d => d.loopID === currentLoopHeader.number);
+          const existing = pendingLoopDummies.find(d => d.loopID === currentLoopHeader.number);
           if (existing) {
             // We have seen this loop before but have a new rightmost block for
             // it. Update which block should get the dummy.
             existing.block = block;
           } else {
             // This loop has not been seen before, so track it.
-            loopDummies.push({ loopID: currentLoopHeader.number, block: block });
+            pendingLoopDummies.push({ loopID: currentLoopHeader.number, block: block });
           }
 
           const parentLoop = currentLoopHeader.parentLoop;
@@ -418,7 +425,7 @@ export class Graph {
         block.layoutNode = node;
 
         // Create dummy nodes for backedges
-        for (const loopDummy of loopDummies.filter(d => d.block === block)) {
+        for (const loopDummy of pendingLoopDummies.filter(d => d.block === block)) {
           const backedge = asLH(this.blocksByNum.get(loopDummy.loopID)).backedge;
           const backedgeDummy: DummyNode = {
             id: nodeID++,
@@ -431,9 +438,16 @@ export class Graph {
             jointOffsets: [],
             flags: 0,
           };
-          connectNodes(backedgeDummy, 0, latestDummyForBackedge.get(backedge) ?? backedge.layoutNode);
+
+          const latestDummy = latestDummiesForBackedges.get(backedge);
+          if (latestDummy) {
+            connectNodes(backedgeDummy, 0, latestDummy);
+          } else {
+            backedgeDummy.flags |= IMMINENT_BACKEDGE_DUMMY;
+            connectNodes(backedgeDummy, 0, backedge.layoutNode);
+          }
           layoutNodesByLayer[layer].push(backedgeDummy);
-          latestDummyForBackedge.set(backedge, backedgeDummy);
+          latestDummiesForBackedges.set(backedge, backedgeDummy);
         }
 
         if (block.attributes.includes("backedge")) {
@@ -452,7 +466,7 @@ export class Graph {
         }
       }
       for (const edge of backedgeEdges) {
-        const backedgeDummy = must(latestDummyForBackedge.get(edge.dstBlock));
+        const backedgeDummy = must(latestDummiesForBackedges.get(edge.dstBlock));
         connectNodes(edge.src, edge.srcPort, backedgeDummy);
       }
     }

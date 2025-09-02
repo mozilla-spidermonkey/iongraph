@@ -4,6 +4,7 @@ import { classes } from "./classes.js";
 import { Graph } from "./Graph.js";
 import type { Func, MIRBlock, Pass } from "./iongraph.js";
 import { assert, clamp, filerp, must } from "./utils.js";
+import { Fusser } from "./fuss.js";
 
 const ZOOM_SENSITIVITY = 1.50;
 const WHEEL_DELTA_SCALE = 0.01;
@@ -11,6 +12,8 @@ const MAX_ZOOM = 1;
 const MIN_ZOOM = 0.10;
 
 const CLAMP_AMOUNT = 40;
+
+const results: number[] = [];
 
 export function GraphViewer({ func, pass: propsPass = 0 }: {
   func: Func,
@@ -36,6 +39,8 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
 
   const startMouseX = useRef(0), startMouseY = useRef(0);
   const lastMouseX = useRef(0), lastMouseY = useRef(0);
+
+  const [fusser, setFusser] = useState<Fusser | null>(null);
 
   function clampTranslation(tx: number, ty: number, scale: number): [number, number] {
     if (!container.current || !graph.current) {
@@ -325,6 +330,51 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
     }
   }, [func]);
 
+  async function fuzzOrCancel() {
+    if (fusser) {
+      fusser.cancel();
+    } else {
+      let first = false;
+      let debug = false;
+
+      const newFusser = new Fusser(
+        () => {
+          graph.current!.setSelection([]);
+          first = true;
+        },
+        async (v) => {
+          if (first) {
+            // Select an initial block
+            const block = graph.current!.blocks[v % graph.current!.blocks.length];
+            graph.current!.setSelection([], block.number);
+            first = false;
+          } else {
+            // Do a random navigation
+            const action = (["up", "down", "left", "right"] as const)[v % 4];
+
+            if (debug) {
+              await new Promise(res => setTimeout(res, 250));
+              console.log(action);
+            }
+            graph.current!.navigate(action);
+            jumpToBlock(graph.current?.lastSelectedBlock ?? -1);
+          }
+        }
+      );
+      setFusser(newFusser);
+      newFusser.fuss()
+        .then(reduced => {
+          console.log(`Done! The following buffer will repro the bug in ${reduced?.length} steps:`, reduced);
+          results.push(reduced?.length ?? -1);
+          console.log("Results!", results);
+          fuzzOrCancel();
+          // debug = true;
+          // return newFusser.runCase(reduced!);
+        })
+        .finally(() => setFusser(null));
+    }
+  }
+
   return <div className="ig-absolute ig-absolute-fill ig-flex">
     <div className="ig-w5 ig-br ig-flex-shrink-0 ig-overflow-y-auto">
       {func.passes.map((pass, i) => <div key={i}>
@@ -349,6 +399,16 @@ export function GraphViewer({ func, pass: propsPass = 0 }: {
         </a>
       </div>)}
     </div>
+    <button
+      style={{
+        position: "absolute",
+        bottom: 0,
+        left: 0,
+      }}
+      onClick={fuzzOrCancel}
+    >
+      {fusser ? "Stop Fuzzing" : "Fuzz"}
+    </button>
     <div
       ref={container}
       className="ig-flex-grow-1 ig-overflow-hidden"

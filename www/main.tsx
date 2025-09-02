@@ -68,6 +68,7 @@ function TestViewer() {
             }}
           />
         </div>
+        <div>{ionjson.functions[func].name}</div>
       </>}
     </div>
     {funcValid && passValid && <div className="ig-relative ig-ba ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
