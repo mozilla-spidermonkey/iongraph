@@ -249,8 +249,13 @@ export class Graph {
 
     if (block.loopDepth < loopIDsByDepth.length - 1) {
       loopIDsByDepth = loopIDsByDepth.slice(0, block.loopDepth + 1);
+    } else if (block.loopDepth >= loopIDsByDepth.length) {
+      // Sometimes the MIR optimization process can turn loop headers into
+      // normal blocks, which means we have blocks that spuriously increase in
+      // loop depth. In this case, just force the block back to a lesser loop
+      // depth.
+      block.loopDepth = loopIDsByDepth[loopIDsByDepth.length - 1];
     }
-    assert(block.loopDepth < loopIDsByDepth.length);
     block.loopID = loopIDsByDepth[block.loopDepth];
 
     if (!block.attributes.includes("backedge")) {
