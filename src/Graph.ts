@@ -173,7 +173,7 @@ export class Graph {
       };
 
       block.layer = -1;
-      block.loopID = 0;
+      block.loopID = -1;
       if (block.attributes.includes("loopheader")) {
         const lh = block as LoopHeader;
         lh.loopHeight = 0;
@@ -235,6 +235,11 @@ export class Graph {
   private findLoops(block: Block, loopIDsByDepth: number[] | null = null) {
     if (loopIDsByDepth === null) {
       loopIDsByDepth = [block.number];
+    }
+
+    // Early out if we already have a loop ID.
+    if (block.loopID >= 0) {
+      return;
     }
 
     if (isTrueLH(block)) {
