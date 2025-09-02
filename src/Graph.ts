@@ -271,6 +271,10 @@ export class Graph {
       return;
     }
 
+    if (layer <= block.layer) {
+      return;
+    }
+
     block.layer = Math.max(block.layer, layer);
     this.numLayers = Math.max(block.layer + 1, this.numLayers);
 
