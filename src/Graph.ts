@@ -12,11 +12,10 @@ const ARROW_RADIUS = 12;
 const TRACK_PADDING = 36;
 const JOINT_SPACING = 16;
 const HEADER_ARROW_PUSHDOWN = 16;
-const BACKEDGE_ARROW_PUSHOUT = 32;
 
 const LAYOUT_ITERATIONS = tweak("Layout Iterations", 2, { min: 0, max: 6 });
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
-const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 4, { min: 0, max: 10 });
+const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 8, { min: 0, max: 10 });
 const STOP_AT_PASS = tweak("Stop At Pass", 30, { min: 0, max: 30 });
 
 interface Vec2 {
@@ -254,7 +253,7 @@ export class Graph {
       // normal blocks, which means we have blocks that spuriously increase in
       // loop depth. In this case, just force the block back to a lesser loop
       // depth.
-      block.loopDepth = loopIDsByDepth[loopIDsByDepth.length - 1];
+      block.loopDepth = loopIDsByDepth.length - 1;
     }
     block.loopID = loopIDsByDepth[block.loopDepth];
 
@@ -555,8 +554,7 @@ export class Graph {
 
         const firstNonDummy = node.block === null && neighbor.block !== null;
         const nodeRightPlusPadding = node.pos.x + node.size.x + (firstNonDummy ? PORT_START : 0) + BLOCK_GAP;
-        const backedgeNeighborPosition = node.block?.attributes.includes("backedge") ? node.pos.x + node.size.x + BACKEDGE_ARROW_PUSHOUT + BLOCK_GAP + PORT_START : 0;
-        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding, backedgeNeighborPosition);
+        neighbor.pos.x = Math.max(neighbor.pos.x, nodeRightPlusPadding);
       }
     };
 
@@ -583,11 +581,6 @@ export class Graph {
       for (const dummy of dummies(layoutNodesByLayer)) {
         const dst = dummy.dstBlock;
         let desiredX = dummy.pos.x;
-        if (dummy.dstNodes[0].block && dst.attributes.includes("backedge")) {
-          // Direct input to backedge
-          const backedgeNode = dst.layoutNode;
-          desiredX = backedgeNode.pos.x + backedgeNode.size.x + BACKEDGE_ARROW_PUSHOUT;
-        }
         dummyLinePositions.set(dst, Math.max(dummyLinePositions.get(dst) ?? 0, desiredX));
       }
 
