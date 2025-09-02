@@ -1123,16 +1123,15 @@ export class Graph {
             const y2 = header.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
             const arrow = loopHeaderArrow(x1, y1, x2, y2);
             svg.appendChild(arrow);
-          } else if (!dst.block && dst.dstNodes[0].block?.attributes.includes("backedge")) {
-            // Draw backedge arrow (skipping the topmost dummy)
-            const backedge = dst.dstNodes[0].block;
+          } else if (node.flags & IMMINENT_BACKEDGE_DUMMY) {
+            // Draw from the dummy to the backedge
+            const backedge = must(dst.block);
+            const x1 = node.pos.x + PORT_START;
+            const y1 = node.pos.y + HEADER_ARROW_PUSHDOWN + ARROW_RADIUS;
             const x2 = backedge.layoutNode.pos.x + backedge.size.x;
             const y2 = backedge.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
             const arrow = arrowToBackedge(x1, y1, x2, y2);
             svg.appendChild(arrow);
-          } else if (dst.block?.attributes.includes("backedge")) {
-            // Is the topmost backedge dummy; ignore since we drew past it previously.
-            assert(!node.block);
           } else if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
             if (node.block === null) {
               // Draw upward arrow between dummies
@@ -1144,7 +1143,7 @@ export class Graph {
             } else {
               // Draw arrow to backedge dummy
               const x2 = dst.pos.x + PORT_START;
-              const y2 = dst.pos.y;
+              const y2 = dst.pos.y + (dst.flags & IMMINENT_BACKEDGE_DUMMY ? HEADER_ARROW_PUSHDOWN + ARROW_RADIUS : 0);
               const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
               const arrow = arrowToBackedgeDummy(x1, y1, x2, y2, ym);
               svg.appendChild(arrow);
@@ -1423,7 +1422,7 @@ function arrowToBackedge(
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(x2 + r <= x1 && y2 + r <= y1, `to backedge: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, r = ${r}`, true);
+  assert(y1 - r >= y2 && x1 - r >= x2, `to backedge: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, r = ${r}`, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
@@ -1433,7 +1432,6 @@ function arrowToBackedge(
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
-  path += `L ${x1} ${y2 + r}`; // vertical joint
   path += `A ${r} ${r} 0 0 0 ${x1 - r} ${y2}`; // arc to line
   path += `L ${x2} ${y2}`; // line left
 
