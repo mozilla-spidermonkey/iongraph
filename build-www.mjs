@@ -1,9 +1,12 @@
 import * as esbuild from "esbuild";
 import { readdirSync, copyFileSync, statSync } from "fs";
 import { join, relative } from "path";
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync, rmSync, watch } from "fs";
 
-let outDir = "dist-www";
+const outDir = "dist-www";
+
+const staticFileDirs = ["www", "src"];
+const staticFilePattern = /\.(html|css|json)$/;
 
 function findFiles(dir, matches, result) {
   for (const file of readdirSync(dir)) {
@@ -17,12 +20,14 @@ function findFiles(dir, matches, result) {
   }
 }
 
-function copyFiles(fromDir, pattern) {
-  const files = [];
-  findFiles(fromDir, pattern, files);
-  for (const file of files) {
-    const dest = join(outDir, relative(fromDir, file));
-    copyFileSync(file, dest);
+function copyStaticFiles() {
+  for (const fromDir of staticFileDirs) {
+    const files = [];
+    findFiles(fromDir, staticFilePattern, files);
+    for (const file of files) {
+      const dest = join(outDir, relative(fromDir, file));
+      copyFileSync(file, dest);
+    }
   }
 }
 
@@ -30,8 +35,7 @@ console.log(`Clearing ${outDir}...`);
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 console.log("Copying static files...");
-copyFiles("www", /\.(html|css|json)$/);
-copyFiles("src", /\.(html|css)$/);
+copyStaticFiles();
 
 console.log("Running esbuild...");
 const ctx = await esbuild.context({
@@ -48,8 +52,16 @@ if (process.argv.includes("--serve")) {
   const { hosts, port } = await ctx.serve({
     servedir: "./dist-www/",
   });
-  console.log(`Re-run this command for changes to HTML or CSS.`);
   console.log(`Now serving on http://localhost:${port}`);
+
+  for (const dir of ["www", "src"]) {
+    watch(dir, { persistent: false, recursive: true }, (eventType, filename) => {
+      if (staticFilePattern.test(filename)) {
+        console.log(`Copying static files due to change in: ${filename}`);
+        copyStaticFiles();
+      }
+    });
+  }
 } else {
   await ctx.rebuild();
   await ctx.dispose();

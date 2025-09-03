@@ -114,6 +114,19 @@ export interface GraphNavigation {
   siblings: number[],
 }
 
+export interface HighlightedInstruction {
+  id: number,
+  paletteColor: number,
+}
+
+export interface GraphOptions {
+  /**
+   * An array of CSS colors to use for highlighting instructions. You are
+   * encouraged to use CSS variables here.
+   */
+  instructionPalette?: string[],
+}
+
 export class Graph {
   container: HTMLElement;
   pass: Pass;
@@ -130,7 +143,10 @@ export class Graph {
   lastSelectedBlock: number | undefined;
   nav: GraphNavigation;
 
-  constructor(container: HTMLElement, pass: Pass) {
+  highlightedInstructions: HighlightedInstruction[];
+  instructionPalette: string[];
+
+  constructor(container: HTMLElement, pass: Pass, options: GraphOptions = {}) {
     const blocks = pass.mir.blocks as Block[];
 
     this.container = container;
@@ -152,6 +168,9 @@ export class Graph {
       currentIndex: -1,
       siblings: [],
     };
+
+    this.highlightedInstructions = [];
+    this.instructionPalette = options.instructionPalette ?? [0, 1, 2, 3].map(n => `var(--ig-highlight-${n})`);
 
     const lirBlocks = new Map<number, LIRBlock>();
     for (const lir of pass.lir.blocks) {
@@ -964,56 +983,6 @@ export class Graph {
   }
 
   private renderBlock(block: Block): HTMLElement {
-    function mirOpToHTML(ins: MIRInstruction): HTMLElement {
-      const prettyOpcode = ins.opcode
-        .replace('->', '→')
-        .replace('<-', '←');
-
-      const row = document.createElement("tr");
-      row.classList.add(...ins.attributes.map(att => `ig-ins-att-${att}`));
-      row.setAttribute("data-ig-mir-op-id", `${ins.id}`);
-
-      const num = document.createElement("td");
-      num.classList.add("ig-op-num");
-      num.innerText = String(ins.id);
-      row.appendChild(num);
-
-      const opcode = document.createElement("td");
-      opcode.innerText = prettyOpcode;
-      row.appendChild(opcode);
-
-      const type = document.createElement("td");
-      type.classList.add("ig-op-type");
-      type.innerText = ins.type === "None" ? "" : ins.type;
-      row.appendChild(type);
-
-      return row;
-    }
-
-    function lirOpToHTML(ins: LIRInstruction): HTMLElement {
-      const prettyOpcode = ins.opcode
-        .replace('->', '→')
-        .replace('<-', '←');
-
-      const row = document.createElement("tr");
-      row.setAttribute("data-ig-lir-op-id", `${ins.id}`);
-
-      const num = document.createElement("td");
-      num.classList.add("ig-op-num");
-      num.innerText = String(ins.id);
-      row.appendChild(num);
-
-      const opcode = document.createElement("td");
-      opcode.innerText = prettyOpcode;
-      row.appendChild(opcode);
-
-      const type = document.createElement("td");
-      type.classList.add("ig-op-type");
-      row.appendChild(type);
-
-      return row;
-    }
-
     const el = document.createElement("div");
     this.container.appendChild(el);
     el.classList.add("ig-block");
@@ -1048,11 +1017,11 @@ export class Graph {
     `;
     if (block.lir) {
       for (const ins of block.lir.instructions) {
-        insns.appendChild(lirOpToHTML(ins));
+        insns.appendChild(this.renderLIRInstruction(ins));
       }
     } else {
       for (const ins of block.instructions) {
-        insns.appendChild(mirOpToHTML(ins));
+        insns.appendChild(this.renderMIRInstruction(ins));
       }
     }
     insnsContainer.appendChild(insns);
@@ -1188,12 +1157,115 @@ export class Graph {
     }
   }
 
+  private renderMIRInstruction(ins: MIRInstruction): HTMLElement {
+    const prettyOpcode = ins.opcode
+      .replace('->', '→')
+      .replace('<-', '←');
+
+    const row = document.createElement("tr");
+    row.classList.add("ig-ins", ...ins.attributes.map(att => `ig-ins-att-${att}`));
+    row.setAttribute("data-ig-ins-id", `${ins.id}`);
+
+    const num = document.createElement("td");
+    num.classList.add("ig-ins-num");
+    num.innerText = String(ins.id);
+    row.appendChild(num);
+
+    const opcode = document.createElement("td");
+    opcode.innerHTML = prettyOpcode.replace(/([A-Za-z0-9_]+)#(\d+)/g, (_, name, id) => {
+      return `<span class="ig-use" data-ig-use="${id}">${name}#${id}</span>`;
+    });
+    row.appendChild(opcode);
+
+    const type = document.createElement("td");
+    type.classList.add("ig-ins-type");
+    type.innerText = ins.type === "None" ? "" : ins.type;
+    row.appendChild(type);
+
+    // Event listeners
+    num.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    num.addEventListener("click", () => {
+      this.toggleInstruction(ins.id);
+    });
+
+    opcode.querySelectorAll<HTMLElement>(".ig-use").forEach(use => {
+      use.addEventListener("pointerdown", e => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      use.addEventListener("click", e => {
+        const id = parseInt(must(use.getAttribute("data-ig-use")), 10);
+        // TODO
+        // this.jumpToInstruction(id);
+      });
+    });
+
+    return row;
+  }
+
+  private renderLIRInstruction(ins: LIRInstruction): HTMLElement {
+    const prettyOpcode = ins.opcode
+      .replace('->', '→')
+      .replace('<-', '←');
+
+    const row = document.createElement("tr");
+    row.classList.add("ig-ins");
+    row.setAttribute("data-ig-ins-id", `${ins.id}`);
+
+    const num = document.createElement("td");
+    num.classList.add("ig-ins-num");
+    num.innerText = String(ins.id);
+    row.appendChild(num);
+
+    const opcode = document.createElement("td");
+    opcode.innerText = prettyOpcode;
+    row.appendChild(opcode);
+
+    const type = document.createElement("td");
+    type.classList.add("ig-ins-type");
+    row.appendChild(type);
+
+    // Event listeners
+    num.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    num.addEventListener("click", () => {
+      this.toggleInstruction(ins.id);
+    });
+
+    return row;
+  }
+
   private renderSelection() {
     this.container.querySelectorAll(".ig-block").forEach(blockEl => {
       const num = parseInt(must(blockEl.getAttribute("data-ig-block-number")), 10);
       blockEl.classList.toggle("ig-selected", this.selectedBlocks.has(num));
       blockEl.classList.toggle("ig-last-selected", this.lastSelectedBlock === num);
     });
+  }
+
+  private renderHighlightedInstructions() {
+    for (const hi of this.highlightedInstructions) {
+      assert(this.highlightedInstructions.filter(other => other.id === hi.id).length === 1, `instruction ${hi.id} was highlighted more than once`);
+    }
+
+    // Clear all existing highlight styles
+    this.container.querySelectorAll<HTMLElement>(".ig-ins, .ig-use").forEach(ins => {
+      ins.style.removeProperty("background-color");
+    });
+    for (const hi of this.highlightedInstructions) {
+      const color = this.instructionPalette[hi.paletteColor % this.instructionPalette.length];
+      const row = must(this.container.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.id}"]`));
+      row.style.backgroundColor = color;
+
+      this.container.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${hi.id}"]`).forEach(use => {
+        use.style.backgroundColor = color;
+      });
+    }
   }
 
   hasBlock(num: number): boolean {
@@ -1297,6 +1369,38 @@ export class Graph {
 
     assert(this.nav.visited.length === 0 || this.nav.siblings.includes(this.nav.visited[this.nav.currentIndex]), "expected currently visited node to be in the siblings array");
     assert(this.lastSelectedBlock === undefined || this.nav.siblings.includes(this.lastSelectedBlock), "expected currently selected block to be in siblings array");
+  }
+
+  toggleInstruction(id: number, force?: boolean, color: number | null = null) {
+    const indexOfExisting = this.highlightedInstructions.findIndex(hi => hi.id === id);
+    let remove = indexOfExisting >= 0;
+    if (force !== undefined) {
+      remove = !force;
+    }
+
+    if (remove) {
+      if (indexOfExisting >= 0) {
+        this.highlightedInstructions.splice(indexOfExisting, 1);
+      }
+    } else {
+      if (indexOfExisting < 0) {
+        let nextPaletteColor = 0;
+        while (true) {
+          if (this.highlightedInstructions.find(hi => hi.paletteColor === nextPaletteColor)) {
+            nextPaletteColor += 1;
+            continue;
+          }
+          break;
+        }
+
+        this.highlightedInstructions.push({
+          id: id,
+          paletteColor: nextPaletteColor,
+        });
+      }
+    }
+
+    this.renderHighlightedInstructions();
   }
 }
 

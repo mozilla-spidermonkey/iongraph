@@ -25,6 +25,11 @@
   --ig-movable-color: blue;
   --ig-rob-color: #444;
   --ig-in-worklist-color: red;
+
+  --ig-highlight-0: orange;
+  --ig-highlight-1: pink;
+  --ig-highlight-2: skyblue;
+  --ig-highlight-3: lightgreen;
 }
 
 a.ig-link-normal {
@@ -296,9 +301,6 @@ a.ig-link-normal {
   position: absolute;
   background-color: white;
 
-  /* I believe this is more than a placebo...I believe!! */
-  contain: content;
-
   h2 {
     font-size: inherit;
     text-align: center;
@@ -311,27 +313,33 @@ a.ig-link-normal {
   }
 
   .ig-instructions {
-    padding: 0.5rem 1rem;
+    padding: 0.5rem;
     border: 1px solid black;
     border-width: 0 1px 1px;
 
     table {
-      width: calc(100% + 1rem);
-      border-spacing: 0.5rem 0;
-      margin: 0 -0.5rem;
+      border-collapse: collapse;
     }
 
     td {
       white-space: nowrap;
+      padding: 0.1rem 0.5rem;
     }
   }
 
-  .ig-op-num {
+  .ig-ins-num {
+    text-align: right;
+    cursor: pointer;
+  }
+
+  .ig-ins-type {
     text-align: right;
   }
 
-  .ig-op-type {
-    text-align: right;
+  .ig-use {
+    padding: 0 0.25rem;
+    border-radius: 3px;
+    cursor: pointer;
   }
 
   &.ig-selected {
