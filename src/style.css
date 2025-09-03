@@ -296,6 +296,9 @@ a.ig-link-normal {
   position: absolute;
   background-color: white;
 
+  /* I believe this is more than a placebo...I believe!! */
+  contain: content;
+
   h2 {
     font-size: inherit;
     text-align: center;
