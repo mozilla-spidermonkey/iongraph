@@ -1255,8 +1255,7 @@ export class Graph {
       });
       use.addEventListener("click", e => {
         const id = parseInt(must(use.getAttribute("data-ig-use")), 10);
-        // TODO
-        // this.jumpToInstruction(id);
+        this.jumpToInstruction(id, 1);
       });
     });
 
@@ -1618,21 +1617,46 @@ export class Graph {
     }
   }
 
-  jumpToBlock(block: number, zoom?: number, animate = true) {
-    const z = zoom ?? this.zoom;
-
+  jumpToBlock(block: number, zoom = this.zoom, animate = true) {
     const selected = this.blocksByNum.get(block);
     if (!selected) {
       return;
     }
 
-    const viewportWidth = this.viewportSize.x / z;
-    const viewportHeight = this.viewportSize.y / z;
-    const xPadding = Math.max(20 / z, (viewportWidth - selected.layoutNode.size.x) / 2);
-    const yPadding = Math.max(20 / z, (viewportHeight - selected.layoutNode.size.y) / 2);
-    const x = selected.layoutNode.pos.x - xPadding;
-    const y = selected.layoutNode.pos.y - yPadding;
-    this.goToCoordinates({ x, y }, z, animate);
+    const coords = this.coordsToCenterRect(selected.layoutNode.pos, selected.layoutNode.pos, zoom);
+    this.goToCoordinates(coords, zoom, animate);
+  }
+
+  jumpToInstruction(ins: number, zoom = this.zoom, animate = true) {
+    // Since we don't have graph-layout coordinates for instructions, we have
+    // to reverse engineer them from their client position.
+    const insEl = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${ins}"]`);
+    if (!insEl) {
+      return;
+    }
+
+    const insRect = insEl.getBoundingClientRect();
+    const graphRect = this.graphContainer.getBoundingClientRect();
+
+    const x = (insRect.x - graphRect.x) / this.zoom;
+    const y = (insRect.y - graphRect.y) / this.zoom;
+    const width = insRect.width / this.zoom;
+    const height = insRect.height / this.zoom;
+
+    const coords = this.coordsToCenterRect({ x, y }, { x: width, y: height }, zoom);
+    this.goToCoordinates(coords, zoom, animate);
+
+    // TODO: Flash the destination instruction for clarity.
+  }
+
+  coordsToCenterRect(pos: Vec2, size: Vec2, zoom: number): Vec2 {
+    const viewportWidth = this.viewportSize.x / zoom;
+    const viewportHeight = this.viewportSize.y / zoom;
+    const xPadding = Math.max(20 / zoom, (viewportWidth - size.x) / 2);
+    const yPadding = Math.max(20 / zoom, (viewportHeight - size.y) / 2);
+    const x = pos.x - xPadding;
+    const y = pos.y - yPadding;
+    return { x, y };
   }
 }
 

@@ -39,8 +39,6 @@ export function GraphViewer({ func, pass: propsPass = 0, block: propsBlock = nul
 
       if (pass) {
         try {
-          // TODO: Display LIR as well, or perhaps wrap that in the Graph
-          // because they are interdependent.
           graph.current = new Graph(viewport.current, pass);
           graph.current.setSelection([...selected], lastSelected);
           if (lastSelected !== undefined) {
