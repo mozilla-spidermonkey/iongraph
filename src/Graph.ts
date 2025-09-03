@@ -1623,7 +1623,7 @@ export class Graph {
       return;
     }
 
-    const coords = this.coordsToCenterRect(selected.layoutNode.pos, selected.layoutNode.pos, zoom);
+    const coords = this.coordsToCenterRect(selected.layoutNode.pos, selected.layoutNode.size, zoom);
     this.goToCoordinates(coords, zoom, animate);
   }
 
