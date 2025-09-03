@@ -1,6 +1,6 @@
 import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph.js";
 import { tweak } from "./tweak.js";
-import { assert, must } from "./utils.js";
+import { assert, clamp, filerp, must } from "./utils.js";
 
 const DEBUG = tweak("Debug?", 0, { min: 0, max: 1 });
 
@@ -17,6 +17,12 @@ const LAYOUT_ITERATIONS = tweak("Layout Iterations", 2, { min: 0, max: 6 });
 const NEARLY_STRAIGHT = tweak("Nearly Straight Threshold", 30, { min: 0, max: 200 });
 const NEARLY_STRAIGHT_ITERATIONS = tweak("Nearly Straight Iterations", 8, { min: 0, max: 10 });
 const STOP_AT_PASS = tweak("Stop At Pass", 30, { min: 0, max: 30 });
+
+const ZOOM_SENSITIVITY = 1.50;
+const WHEEL_DELTA_SCALE = 0.01;
+const MAX_ZOOM = 1;
+const MIN_ZOOM = 0.10;
+const TRANSLATION_CLAMP_AMOUNT = 40;
 
 interface Vec2 {
   x: number,
@@ -128,16 +134,47 @@ export interface GraphOptions {
 }
 
 export class Graph {
-  container: HTMLElement;
+  //
+  // HTML elements
+  //
+  viewport: HTMLElement
+  viewportSize: Vec2;
+  graphContainer: HTMLElement;
+
+  //
+  // Core iongraph data
+  //
+
   pass: Pass;
   blocks: Block[];
   blocksInOrder: Block[];
   blocksByNum: Map<number, Block>;
   loops: LoopHeader[];
 
-  width: number;
-  height: number;
+  //
+  // Post-layout info
+  //
+
+  size: Vec2;
   numLayers: number;
+
+  //
+  // Pan and zoom
+  //
+
+  zoom: number;
+  translation: Vec2;
+
+  animating: boolean;
+  targetZoom: number;
+  targetTranslation: Readonly<Vec2>;
+
+  startMousePos: Readonly<Vec2>;
+  lastMousePos: Readonly<Vec2>;
+
+  //
+  // Block and instruction selection / navigation
+  //
 
   selectedBlocks: Set<number>;
   lastSelectedBlock: number | undefined;
@@ -146,10 +183,20 @@ export class Graph {
   highlightedInstructions: HighlightedInstruction[];
   instructionPalette: string[];
 
-  constructor(container: HTMLElement, pass: Pass, options: GraphOptions = {}) {
+  constructor(viewport: HTMLElement, pass: Pass, options: GraphOptions = {}) {
     const blocks = pass.mir.blocks as Block[];
 
-    this.container = container;
+    this.viewport = viewport;
+    const viewportRect = viewport.getBoundingClientRect();
+    this.viewportSize = {
+      x: viewportRect.width,
+      y: viewportRect.height,
+    };
+
+    this.graphContainer = document.createElement("div");
+    this.graphContainer.style.transformOrigin = "top left";
+    this.viewport.appendChild(this.graphContainer);
+
     this.pass = pass;
     this.blocks = blocks;
     this.blocksInOrder = [...blocks].sort((a, b) => a.number - b.number);
@@ -157,9 +204,18 @@ export class Graph {
 
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
-    this.width = 0;
-    this.height = 0;
+    this.size = { x: 0, y: 0 };
     this.numLayers = 0;
+
+    this.zoom = 1;
+    this.translation = { x: 0, y: 0 };
+
+    this.animating = false;
+    this.targetZoom = 1;
+    this.targetTranslation = { x: 0, y: 0 };
+
+    this.startMousePos = { x: 0, y: 0 };
+    this.lastMousePos = { x: 0, y: 0 };
 
     this.selectedBlocks = new Set();
     this.lastSelectedBlock = undefined;
@@ -225,6 +281,8 @@ export class Graph {
 
     const [nodesByLayer, layerHeights, trackHeights] = this.layout();
     this.render(nodesByLayer, layerHeights, trackHeights);
+
+    this.addEventListeners();
   }
 
   private layout(): [LayoutNode[][], number[], number[]] {
@@ -984,7 +1042,7 @@ export class Graph {
 
   private renderBlock(block: Block): HTMLElement {
     const el = document.createElement("div");
-    this.container.appendChild(el);
+    this.graphContainer.appendChild(el);
     el.classList.add("ig-block");
     for (const att of block.attributes) {
       el.classList.add(`ig-block-att-${att}`);
@@ -1077,10 +1135,9 @@ export class Graph {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", `${maxX}`);
     svg.setAttribute("height", `${maxY}`);
-    this.container.appendChild(svg);
+    this.graphContainer.appendChild(svg);
 
-    this.width = maxX;
-    this.height = maxY;
+    this.size = { x: maxX, y: maxY };
 
     // Render arrows
     for (let layer = 0; layer < nodesByLayer.length; layer++) {
@@ -1151,7 +1208,7 @@ export class Graph {
           el.style.left = `${node.pos.x}px`;
           el.style.top = `${node.pos.y}px`;
           el.style.whiteSpace = "nowrap";
-          this.container.appendChild(el);
+          this.graphContainer.appendChild(el);
         }
       }
     }
@@ -1241,7 +1298,7 @@ export class Graph {
   }
 
   private renderSelection() {
-    this.container.querySelectorAll(".ig-block").forEach(blockEl => {
+    this.graphContainer.querySelectorAll(".ig-block").forEach(blockEl => {
       const num = parseInt(must(blockEl.getAttribute("data-ig-block-number")), 10);
       blockEl.classList.toggle("ig-selected", this.selectedBlocks.has(num));
       blockEl.classList.toggle("ig-last-selected", this.lastSelectedBlock === num);
@@ -1254,18 +1311,103 @@ export class Graph {
     }
 
     // Clear all existing highlight styles
-    this.container.querySelectorAll<HTMLElement>(".ig-ins, .ig-use").forEach(ins => {
+    this.graphContainer.querySelectorAll<HTMLElement>(".ig-ins, .ig-use").forEach(ins => {
       ins.style.removeProperty("background-color");
     });
     for (const hi of this.highlightedInstructions) {
       const color = this.instructionPalette[hi.paletteColor % this.instructionPalette.length];
-      const row = must(this.container.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.id}"]`));
+      const row = must(this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.id}"]`));
       row.style.backgroundColor = color;
 
-      this.container.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${hi.id}"]`).forEach(use => {
+      this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${hi.id}"]`).forEach(use => {
         use.style.backgroundColor = color;
       });
     }
+  }
+
+  private addEventListeners() {
+    this.viewport.addEventListener("wheel", e => {
+      e.preventDefault();
+
+      let newZoom = this.zoom;
+      if (e.ctrlKey) {
+        newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.zoom * Math.pow(ZOOM_SENSITIVITY, -e.deltaY * WHEEL_DELTA_SCALE)));
+        const zoomDelta = (newZoom / this.zoom) - 1;
+        this.zoom = newZoom;
+
+        const { x: gx, y: gy } = this.viewport.getBoundingClientRect();
+        const mouseOffsetX = (e.clientX - gx) - this.translation.x;
+        const mouseOffsetY = (e.clientY - gy) - this.translation.y;
+        this.translation.x -= mouseOffsetX * zoomDelta;
+        this.translation.y -= mouseOffsetY * zoomDelta;
+      } else {
+        this.translation.x -= e.deltaX;
+        this.translation.y -= e.deltaY;
+      }
+
+      const clampedT = this.clampTranslation(this.translation, newZoom);
+      this.translation.x = clampedT.x;
+      this.translation.y = clampedT.y;
+
+      this.animating = false;
+      this.updatePanAndZoom();
+    });
+    this.viewport.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      this.viewport.setPointerCapture(e.pointerId);
+      this.startMousePos = {
+        x: e.clientX,
+        y: e.clientY,
+      };
+      this.lastMousePos = {
+        x: e.clientX,
+        y: e.clientY,
+      };
+      this.animating = false;
+    });
+    this.viewport.addEventListener("pointermove", e => {
+      if (!this.viewport.hasPointerCapture(e.pointerId)) {
+        return;
+      }
+
+      const dx = (e.clientX - this.lastMousePos.x);
+      const dy = (e.clientY - this.lastMousePos.y);
+      this.translation.x += dx;
+      this.translation.y += dy;
+      this.lastMousePos = {
+        x: e.clientX,
+        y: e.clientY,
+      };
+
+      const clampedT = this.clampTranslation(this.translation, this.zoom);
+      this.translation.x = clampedT.x;
+      this.translation.y = clampedT.y;
+
+      this.animating = false;
+      this.updatePanAndZoom();
+    });
+    this.viewport.addEventListener("pointerup", e => {
+      this.viewport.releasePointerCapture(e.pointerId);
+
+      const THRESHOLD = 2;
+      const deltaX = this.startMousePos.x - e.clientX;
+      const deltaY = this.startMousePos.y - e.clientY;
+      if (Math.abs(deltaX) <= THRESHOLD && Math.abs(deltaY) <= THRESHOLD) {
+        this.setSelection([]);
+      }
+
+      this.animating = false;
+    });
+
+    // Observe resizing of the viewport (so we don't have to trigger style
+    // calculation in hot paths)
+    const ro = new ResizeObserver(entries => {
+      assert(entries.length === 1);
+      const rect = entries[0].contentRect;
+      this.viewportSize.x = rect.width;
+      this.viewportSize.y = rect.height;
+    });
+    ro.observe(this.viewport);
   }
 
   hasBlock(num: number): boolean {
@@ -1401,6 +1543,96 @@ export class Graph {
     }
 
     this.renderHighlightedInstructions();
+  }
+
+  private clampTranslation(t: Vec2, scale: number): Vec2 {
+    const minX = TRANSLATION_CLAMP_AMOUNT - this.size.x * scale;
+    const maxX = this.viewportSize.x - TRANSLATION_CLAMP_AMOUNT;
+    const minY = TRANSLATION_CLAMP_AMOUNT - this.size.y * scale;
+    const maxY = this.viewportSize.y - TRANSLATION_CLAMP_AMOUNT;
+
+    const newX = clamp(t.x, minX, maxX);
+    const newY = clamp(t.y, minY, maxY);
+
+    return { x: newX, y: newY };
+  }
+
+  updatePanAndZoom() {
+    // We clamp here as well as in the input events because we want to respect
+    // the clamped limits even when jumping from pass to pass. But then when we
+    // actually receive input we want the clamping to "stick".
+    const clampedT = this.clampTranslation(this.translation, this.zoom);
+    this.graphContainer.style.transform = `translate(${clampedT.x}px, ${clampedT.y}px) scale(${this.zoom})`;
+  }
+
+  // Pans and zooms the graph such that the given x and y are in the top left
+  // of the viewport at the requested zoom level.
+  async goToCoordinates(pos: Vec2, zm: number, animate = true) {
+    const newTranslation = { x: -pos.x * zm, y: -pos.y * zm };
+
+    if (!animate) {
+      this.animating = false;
+      this.translation.x = newTranslation.x;
+      this.translation.y = newTranslation.y;
+      this.zoom = zm;
+      this.updatePanAndZoom();
+      return;
+    }
+
+    this.targetTranslation = newTranslation;
+    this.targetZoom = zm;
+    if (this.animating) {
+      // Do not start another animation loop.
+      return;
+    }
+
+    this.animating = true;
+    let lastTime = performance.now();
+    while (this.animating) {
+      const now = await new Promise<number>(res => requestAnimationFrame(res));
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      const THRESHOLD_T = 1, THRESHOLD_ZOOM = 0.01;
+      const R = 0.000001; // fraction remaining after one second: smaller = faster
+      const dx = this.targetTranslation.x - this.translation.x;
+      const dy = this.targetTranslation.y - this.translation.y;
+      const dzoom = this.targetZoom - this.zoom;
+      this.translation.x = filerp(this.translation.x, this.targetTranslation.x, R, dt);
+      this.translation.y = filerp(this.translation.y, this.targetTranslation.y, R, dt);
+      this.zoom = filerp(this.zoom, this.targetZoom, R, dt);
+      this.updatePanAndZoom();
+
+      if (
+        Math.abs(dx) <= THRESHOLD_T
+        && Math.abs(dy) <= THRESHOLD_T
+        && Math.abs(dzoom) <= THRESHOLD_ZOOM
+      ) {
+        this.translation.x = this.targetTranslation.x;
+        this.translation.y = this.targetTranslation.y;
+        this.zoom = this.targetZoom;
+        this.animating = false;
+        this.updatePanAndZoom();
+        break;
+      }
+    }
+  }
+
+  jumpToBlock(block: number, zoom?: number, animate = true) {
+    const z = zoom ?? this.zoom;
+
+    const selected = this.blocksByNum.get(block);
+    if (!selected) {
+      return;
+    }
+
+    const viewportWidth = this.viewportSize.x / z;
+    const viewportHeight = this.viewportSize.y / z;
+    const xPadding = Math.max(20 / z, (viewportWidth - selected.layoutNode.size.x) / 2);
+    const yPadding = Math.max(20 / z, (viewportHeight - selected.layoutNode.size.y) / 2);
+    const x = selected.layoutNode.pos.x - xPadding;
+    const y = selected.layoutNode.pos.y - yPadding;
+    this.goToCoordinates({ x, y }, z, animate);
   }
 }
 
