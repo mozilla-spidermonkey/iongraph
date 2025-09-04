@@ -30,6 +30,9 @@
   --ig-highlight-1: pink;
   --ig-highlight-2: skyblue;
   --ig-highlight-3: lightgreen;
+
+  --ig-flash-color: #ffa500;
+  --ig-flash-color-transparent: #ffa50000;
 }
 
 a.ig-link-normal {
@@ -385,4 +388,14 @@ a.ig-link-normal {
 
 .ig-ins-att-InWorklist {
   color: var(--ig-in-worklist-color);
+}
+
+.ig-can-flash {
+  transition: outline-color 1s ease-out;
+  outline: 3px solid var(--ig-flash-color-transparent);
+}
+
+.ig-flash {
+  transition: outline-color 0s;
+  outline-color: var(--ig-flash-color);
 }

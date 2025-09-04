@@ -1220,7 +1220,7 @@ export class Graph {
       .replace('<-', '←');
 
     const row = document.createElement("tr");
-    row.classList.add("ig-ins", ...ins.attributes.map(att => `ig-ins-att-${att}`));
+    row.classList.add("ig-ins", "ig-can-flash", ...ins.attributes.map(att => `ig-ins-att-${att}`));
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
     const num = document.createElement("td");
@@ -1575,6 +1575,7 @@ export class Graph {
       this.translation.y = newTranslation.y;
       this.zoom = zm;
       this.updatePanAndZoom();
+      await new Promise(res => setTimeout(res, 0));
       return;
     }
 
@@ -1582,6 +1583,9 @@ export class Graph {
     this.targetZoom = zm;
     if (this.animating) {
       // Do not start another animation loop.
+      //
+      // TODO: Be fancy and return a promise that will resolve when the
+      // existing animation loop resolves.
       return;
     }
 
@@ -1615,6 +1619,10 @@ export class Graph {
         break;
       }
     }
+
+    // Delay by one update so that CSS changes before/after animation will
+    // always take effect, e.g. for .ig-flash.
+    await new Promise(res => setTimeout(res, 0));
   }
 
   jumpToBlock(block: number, zoom = this.zoom, animate = true) {
@@ -1627,7 +1635,7 @@ export class Graph {
     this.goToCoordinates(coords, zoom, animate);
   }
 
-  jumpToInstruction(ins: number, zoom = this.zoom, animate = true) {
+  async jumpToInstruction(ins: number, zoom = this.zoom, animate = true) {
     // Since we don't have graph-layout coordinates for instructions, we have
     // to reverse engineer them from their client position.
     const insEl = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${ins}"]`);
@@ -1644,9 +1652,9 @@ export class Graph {
     const height = insRect.height / this.zoom;
 
     const coords = this.coordsToCenterRect({ x, y }, { x: width, y: height }, zoom);
-    this.goToCoordinates(coords, zoom, animate);
-
-    // TODO: Flash the destination instruction for clarity.
+    insEl.classList.add("ig-flash");
+    await this.goToCoordinates(coords, zoom, animate);
+    insEl.classList.remove("ig-flash");
   }
 
   coordsToCenterRect(pos: Vec2, size: Vec2, zoom: number): Vec2 {
