@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { classes } from "./classes.js";
 import { Graph } from "./Graph.js";
-import type { Func, Pass, SampleCounts } from "./iongraph.js";
+import type { BlockID, Func, Pass, SampleCounts } from "./iongraph.js";
 import { must } from "./utils.js";
 
 export interface GraphViewerProps {
   func: Func,
   pass?: number,
-  block?: number | null,
 
   sampleCounts?: SampleCounts,
 }
@@ -16,7 +15,6 @@ export interface GraphViewerProps {
 export function GraphViewer({
   func,
   pass: propsPass = 0,
-  block: propsBlock = null,
 
   sampleCounts
 }: GraphViewerProps) {
@@ -35,11 +33,11 @@ export function GraphViewer({
       const currentTranslation = graph.current?.translation ?? { x: 0, y: 0 };
       const currentZoom = graph.current?.zoom ?? 1;
 
-      const selected = graph.current?.selectedBlocks ?? new Set();
-      const lastSelected = graph.current?.lastSelectedBlock;
+      const selected = graph.current?.selectedBlockIDs ?? new Set();
+      const lastSelected = graph.current?.lastSelectedBlockID;
       let offsetX = 0, offsetY = 0;
       if (lastSelected !== undefined) {
-        const block = must(must(graph.current).blocksByNum.get(lastSelected));
+        const block = must(must(graph.current).blocksByID.get(lastSelected));
         offsetX = block.layoutNode.pos.x - (-graph.current!.translation.x / graph.current!.zoom);
         offsetY = block.layoutNode.pos.y - (-graph.current!.translation.y / graph.current!.zoom);
       }
@@ -54,7 +52,7 @@ export function GraphViewer({
           });
           graph.current.setSelection([...selected], lastSelected);
           if (lastSelected !== undefined) {
-            const newSelectedBlock = graph.current.blocksByNum.get(lastSelected);
+            const newSelectedBlock = graph.current.blocksByID.get(lastSelected);
             if (newSelectedBlock) { // The desired selected block still exists
               graph.current.goToCoordinates(
                 {
@@ -84,10 +82,6 @@ export function GraphViewer({
   useEffect(() => {
     const pass: Pass | undefined = func.passes[passNumber];
     redrawGraph(pass);
-    if (propsBlock !== null) {
-      graph.current?.setSelection([], propsBlock);
-      graph.current?.jumpToBlock(propsBlock);
-    }
 
     const handler = () => {
       redrawGraph(pass);
@@ -96,7 +90,7 @@ export function GraphViewer({
     return () => {
       window.removeEventListener("tweak", handler);
     };
-  }, [func, passNumber, propsBlock]);
+  }, [func, passNumber]);
 
   // Hook up keyboard shortcuts
   useEffect(() => {
@@ -105,12 +99,12 @@ export function GraphViewer({
         case "w":
         case "s": {
           graph.current?.navigate(e.key === "s" ? "down" : "up");
-          graph.current?.jumpToBlock(graph.current?.lastSelectedBlock ?? -1);
+          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
         } break;
         case "a":
         case "d": {
           graph.current?.navigate(e.key === "d" ? "right" : "left");
-          graph.current?.jumpToBlock(graph.current?.lastSelectedBlock ?? -1);
+          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
         } break;
         case "f": {
           setPassNumber(pn => Math.min(pn + 1, func.passes.length - 1));
@@ -119,9 +113,9 @@ export function GraphViewer({
           setPassNumber(pn => Math.max(pn - 1, 0));
         } break;
         case "c": {
-          const selected = graph.current?.blocksByNum.get(graph.current?.lastSelectedBlock ?? -1);
+          const selected = graph.current?.blocksByID.get(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
           if (selected && viewport.current) {
-            graph.current?.jumpToBlock(selected.number, 1);
+            graph.current?.jumpToBlock(selected.id, 1);
           }
         } break;
       }

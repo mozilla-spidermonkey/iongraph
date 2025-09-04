@@ -2,12 +2,12 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { GraphViewer } from '../src/GraphViewer.js';
-import type { IonJSON, MIRBlock, SampleCounts } from '../src/iongraph.js';
+import { Func, migrate, MigratedIonJSON, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
 
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;
 
-  const [ionjson, setIonJSON] = useState<IonJSON>({ functions: [] });
+  const [ionjson, setIonJSON] = useState<MigratedIonJSON>(migrate({ functions: [] }));
   const [sampleCounts, setSampleCounts] = useState<SampleCounts | undefined>();
 
   useEffect(() => {
@@ -16,10 +16,12 @@ function TestViewer() {
       if (searchFile) {
         const res = await fetch(searchFile);
         const json = await res.json();
+
+        // TODO: Remove this "functions" path for 1.0
         if (json["functions"]) {
-          setIonJSON(json);
+          setIonJSON(migrate(json as IonJSON));
         } else {
-          setIonJSON({ functions: [json] });
+          setIonJSON(migrate({ functions: [json as Func] }));
         }
       }
     })();
@@ -39,18 +41,17 @@ function TestViewer() {
 
   const [func, setFunc] = useState(searchParams.has("func") ? parseInt(searchParams.get("func")!, 10) : 0);
   const [pass, setPass] = useState(searchParams.has("pass") ? parseInt(searchParams.get("pass")!, 10) : 0);
-  const [block, setBlock] = useState<number | null>(searchParams.has("block") ? parseInt(searchParams.get("block")!, 10) : null);
 
   async function fileSelected(e: ChangeEvent<HTMLInputElement>) {
     const input = e.target;
     if (!input.files?.length) {
-      setIonJSON({ functions: [] });
+      setIonJSON(migrate({ functions: [] }));
       return;
     }
 
     const file = input.files[0];
-    const newJSON = JSON.parse(await file.text());
-    setIonJSON(newJSON);
+    const newJSON = JSON.parse(await file.text()) as IonJSON;
+    setIonJSON(migrate(newJSON));
   }
 
   let blocks: MIRBlock[] = [];
@@ -94,7 +95,6 @@ function TestViewer() {
       <GraphViewer
         func={ionjson.functions[func]}
         pass={pass}
-        block={block}
         sampleCounts={sampleCounts}
       />
     </div>}
