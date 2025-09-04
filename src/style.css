@@ -32,7 +32,20 @@
   --ig-highlight-3: lightgreen;
 
   --ig-flash-color: #ffa500;
-  --ig-flash-color-transparent: #ffa50000;
+
+  /*
+   * The heatmap of sample counts will effectively be sampled from a gradient:
+   *
+   * |----------|---------------------------------------|
+   * cold     "cool"                                  hot
+   *
+   * The "cold" color will simply be transparent. Therefore, the "cool"
+   * threshold indicates where the instruction will be fully colored and
+   * noticeable to the user.
+   */
+  --ig-hot-color: #ff897d;
+  --ig-cool-color: #ffe50e;
+  --ig-cool-threshold: 0.2;
 }
 
 a.ig-link-normal {
@@ -339,6 +352,11 @@ a.ig-link-normal {
     text-align: right;
   }
 
+  .ig-ins-samples {
+    font-size: 0.875rem;
+    text-align: right;
+  }
+
   .ig-use {
     padding: 0 0.25rem;
     border-radius: 3px;
@@ -392,10 +410,19 @@ a.ig-link-normal {
 
 .ig-can-flash {
   transition: outline-color 1s ease-out;
-  outline: 3px solid var(--ig-flash-color-transparent);
+  outline: 3px solid color-mix(in srgb, var(--ig-flash-color) 0%, transparent);
 }
 
 .ig-flash {
   transition: outline-color 0s;
   outline-color: var(--ig-flash-color);
+}
+
+.ig-hotness {
+  --ig-hotness: 0;
+  background-color: color-mix(in oklab,
+      color-mix(in oklab,
+        color-mix(in srgb, var(--ig-cool-color) 0%, transparent),
+        var(--ig-cool-color) clamp(0%, calc((var(--ig-hotness) / var(--ig-cool-threshold)) * 100%), 100%)),
+      var(--ig-hot-color) clamp(0%, calc(((var(--ig-hotness) - var(--ig-cool-threshold)) / (1 - var(--ig-cool-threshold)) * 100%)), 100%));
 }

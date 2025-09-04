@@ -2,14 +2,24 @@ import { useEffect, useRef, useState } from "react";
 
 import { classes } from "./classes.js";
 import { Graph } from "./Graph.js";
-import type { Func, Pass } from "./iongraph.js";
+import type { Func, Pass, SampleCounts } from "./iongraph.js";
 import { must } from "./utils.js";
 
-export function GraphViewer({ func, pass: propsPass = 0, block: propsBlock = null }: {
+export interface GraphViewerProps {
   func: Func,
   pass?: number,
   block?: number | null,
-}) {
+
+  sampleCounts?: SampleCounts,
+}
+
+export function GraphViewer({
+  func,
+  pass: propsPass = 0,
+  block: propsBlock = null,
+
+  sampleCounts
+}: GraphViewerProps) {
   const viewport = useRef<HTMLDivElement | null>(null);
   const graph = useRef<Graph | null>(null);
 
@@ -39,7 +49,9 @@ export function GraphViewer({ func, pass: propsPass = 0, block: propsBlock = nul
 
       if (pass) {
         try {
-          graph.current = new Graph(viewport.current, pass);
+          graph.current = new Graph(viewport.current, pass, {
+            sampleCounts,
+          });
           graph.current.setSelection([...selected], lastSelected);
           if (lastSelected !== undefined) {
             const newSelectedBlock = graph.current.blocksByNum.get(lastSelected);

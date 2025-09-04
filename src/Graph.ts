@@ -1,4 +1,4 @@
-import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass } from "./iongraph.js";
+import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts } from "./iongraph.js";
 import { tweak } from "./tweak.js";
 import { assert, clamp, filerp, must } from "./utils.js";
 
@@ -127,6 +127,11 @@ export interface HighlightedInstruction {
 
 export interface GraphOptions {
   /**
+   * Sample counts to display when viewing the LIR graph.
+   */
+  sampleCounts?: SampleCounts,
+
+  /**
    * An array of CSS colors to use for highlighting instructions. You are
    * encouraged to use CSS variables here.
    */
@@ -150,6 +155,8 @@ export class Graph {
   blocksInOrder: Block[];
   blocksByNum: Map<number, Block>;
   loops: LoopHeader[];
+  sampleCounts: SampleCounts | undefined;
+  maxSampleCount: number;
 
   //
   // Post-layout info
@@ -201,8 +208,13 @@ export class Graph {
     this.blocks = blocks;
     this.blocksInOrder = [...blocks].sort((a, b) => a.number - b.number);
     this.blocksByNum = new Map();
-
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
+    this.sampleCounts = options.sampleCounts;
+    this.maxSampleCount = 0;
+
+    for (const [ins, count] of this.sampleCounts?.selfLineHits ?? []) {
+      this.maxSampleCount = Math.max(this.maxSampleCount, count);
+    }
 
     this.size = { x: 0, y: 0 };
     this.numLayers = 0;
@@ -1070,7 +1082,7 @@ export class Graph {
       <colgroup>
         <col style="width: 1px">
         <col style="width: auto">
-        <col style="width: auto">
+        ${this.sampleCounts ? `<col style="width: 1px">` : ""}
       </colgroup>
     `;
     if (block.lir) {
@@ -1267,8 +1279,11 @@ export class Graph {
       .replace('->', '→')
       .replace('<-', '←');
 
+    const sampleCount = this.sampleCounts?.selfLineHits.get(ins.id) ?? 0;
+
     const row = document.createElement("tr");
-    row.classList.add("ig-ins");
+    row.classList.add("ig-ins", "ig-hotness");
+    row.style.setProperty("--ig-hotness", `${sampleCount / this.maxSampleCount}`);
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
     const num = document.createElement("td");
@@ -1280,9 +1295,13 @@ export class Graph {
     opcode.innerText = prettyOpcode;
     row.appendChild(opcode);
 
-    const type = document.createElement("td");
-    type.classList.add("ig-ins-type");
-    row.appendChild(type);
+    if (this.sampleCounts) {
+      const samples = document.createElement("td");
+      samples.classList.add("ig-ins-samples");
+      samples.classList.toggle("ig-text-dim", sampleCount === 0);
+      samples.innerText = `${sampleCount}`;
+      row.appendChild(samples);
+    }
 
     // Event listeners
     num.addEventListener("pointerdown", e => {
@@ -1638,7 +1657,7 @@ export class Graph {
   async jumpToInstruction(ins: number, zoom = this.zoom, animate = true) {
     // Since we don't have graph-layout coordinates for instructions, we have
     // to reverse engineer them from their client position.
-    const insEl = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${ins}"]`);
+    const insEl = this.graphContainer.querySelector<HTMLElement>(`.ig - ins[data - ig - ins - id="${ins}"]`);
     if (!insEl) {
       return;
     }
@@ -1704,7 +1723,7 @@ function downwardArrow(
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(y1 + r <= ym && ym < y2 - r, `downward arrow: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+  assert(y1 + r <= ym && ym < y2 - r, `downward arrow: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r} `, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
@@ -1718,14 +1737,14 @@ function downwardArrow(
 
   if (Math.abs(x2 - x1) < 2 * r) {
     // Degenerate case where the radii won't fit; fall back to bezier.
-    path += `C ${x1} ${y1 + (y2 - y1) / 3} ${x2} ${y1 + 2 * (y2 - y1) / 3} ${x2} ${y2}`;
+    path += `C ${x1} ${y1 + (y2 - y1) / 3} ${x2} ${y1 + 2 * (y2 - y1) / 3} ${x2} ${y2} `;
   } else {
     const dir = Math.sign(x2 - x1);
     path += `L ${x1} ${ym - r} `; // line down
     path += `A ${r} ${r} 0 0 ${dir > 0 ? 0 : 1} ${x1 + r * dir} ${ym} `; // arc to joint
     path += `L ${x2 - r * dir} ${ym} `; // joint
     path += `A ${r} ${r} 0 0 ${dir > 0 ? 1 : 0} ${x2} ${ym + r} `; // arc to line
-    path += `L ${x2} ${y2}`; // line down
+    path += `L ${x2} ${y2} `; // line down
   }
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -1734,7 +1753,7 @@ function downwardArrow(
   p.setAttribute("d", path);
   p.setAttribute("fill", "none");
   p.setAttribute("stroke", "black");
-  p.setAttribute("stroke-width", `${stroke}`);
+  p.setAttribute("stroke-width", `${stroke} `);
   g.appendChild(p);
 
   if (doArrowhead) {
@@ -1753,7 +1772,7 @@ function upwardArrow(
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(y2 + r <= ym && ym <= y1 - r, `upward arrow: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+  assert(y2 + r <= ym && ym <= y1 - r, `upward arrow: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r} `, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
@@ -1767,14 +1786,14 @@ function upwardArrow(
 
   if (Math.abs(x2 - x1) < 2 * r) {
     // Degenerate case where the radii won't fit; fall back to bezier.
-    path += `C ${x1} ${y1 + (y2 - y1) / 3} ${x2} ${y1 + 2 * (y2 - y1) / 3} ${x2} ${y2}`;
+    path += `C ${x1} ${y1 + (y2 - y1) / 3} ${x2} ${y1 + 2 * (y2 - y1) / 3} ${x2} ${y2} `;
   } else {
     const dir = Math.sign(x2 - x1);
     path += `L ${x1} ${ym + r} `; // line up
     path += `A ${r} ${r} 0 0 ${dir > 0 ? 1 : 0} ${x1 + r * dir} ${ym} `; // arc to joint
     path += `L ${x2 - r * dir} ${ym} `; // joint
     path += `A ${r} ${r} 0 0 ${dir > 0 ? 0 : 1} ${x2} ${ym - r} `; // arc to line
-    path += `L ${x2} ${y2}`; // line up
+    path += `L ${x2} ${y2} `; // line up
   }
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -1783,7 +1802,7 @@ function upwardArrow(
   p.setAttribute("d", path);
   p.setAttribute("fill", "none");
   p.setAttribute("stroke", "black");
-  p.setAttribute("stroke-width", `${stroke}`);
+  p.setAttribute("stroke-width", `${stroke} `);
   g.appendChild(p);
 
   if (doArrowhead) {
@@ -1800,7 +1819,7 @@ function arrowToBackedge(
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(y1 - r >= y2 && x1 - r >= x2, `to backedge: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, r = ${r}`, true);
+  assert(y1 - r >= y2 && x1 - r >= x2, `to backedge: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, r = ${r} `, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
@@ -1810,8 +1829,8 @@ function arrowToBackedge(
 
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
-  path += `A ${r} ${r} 0 0 0 ${x1 - r} ${y2}`; // arc to line
-  path += `L ${x2} ${y2}`; // line left
+  path += `A ${r} ${r} 0 0 0 ${x1 - r} ${y2} `; // arc to line
+  path += `L ${x2} ${y2} `; // line left
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
@@ -1819,7 +1838,7 @@ function arrowToBackedge(
   p.setAttribute("d", path);
   p.setAttribute("fill", "none");
   p.setAttribute("stroke", "black");
-  p.setAttribute("stroke-width", `${stroke}`);
+  p.setAttribute("stroke-width", `${stroke} `);
   g.appendChild(p);
 
   const v = arrowhead(x2, y2, 270);
@@ -1835,7 +1854,7 @@ function arrowFromBlockToBackedgeDummy(
   stroke = 1,
 ): SVGElement {
   const r = ARROW_RADIUS;
-  assert(y1 + r <= ym && x1 <= x2 && y2 <= y1, `block to backedge dummy: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r}`, true);
+  assert(y1 + r <= ym && x1 <= x2 && y2 <= y1, `block to backedge dummy: x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}, ym = ${ym}, r = ${r} `, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
@@ -1847,10 +1866,10 @@ function arrowFromBlockToBackedgeDummy(
   let path = "";
   path += `M ${x1} ${y1} `; // move to start
   path += `L ${x1} ${ym - r} `; // line down
-  path += `A ${r} ${r} 0 0 0 ${x1 + r} ${ym}`; // arc to horizontal joint
+  path += `A ${r} ${r} 0 0 0 ${x1 + r} ${ym} `; // arc to horizontal joint
   path += `L ${x2 - r} ${ym} `; // horizontal joint
-  path += `A ${r} ${r} 0 0 0 ${x2} ${ym - r}`; // arc to line
-  path += `L ${x2} ${y2}`; // line up
+  path += `A ${r} ${r} 0 0 0 ${x2} ${ym - r} `; // arc to line
+  path += `L ${x2} ${y2} `; // line up
 
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
@@ -1858,7 +1877,7 @@ function arrowFromBlockToBackedgeDummy(
   p.setAttribute("d", path);
   p.setAttribute("fill", "none");
   p.setAttribute("stroke", "black");
-  p.setAttribute("stroke-width", `${stroke}`);
+  p.setAttribute("stroke-width", `${stroke} `);
   g.appendChild(p);
 
   return g;
@@ -1869,7 +1888,7 @@ function loopHeaderArrow(
   x2: number, y2: number,
   stroke = 1,
 ): SVGElement {
-  assert(x2 < x1 && y2 === y1, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2}`, true);
+  assert(x2 < x1 && y2 === y1, `x1 = ${x1}, y1 = ${y1}, x2 = ${x2}, y2 = ${y2} `, true);
 
   // Align stroke to pixels
   if (stroke % 2 === 1) {
@@ -1887,7 +1906,7 @@ function loopHeaderArrow(
   p.setAttribute("d", path);
   p.setAttribute("fill", "none");
   p.setAttribute("stroke", "black");
-  p.setAttribute("stroke-width", `${stroke}`);
+  p.setAttribute("stroke-width", `${stroke} `);
   g.appendChild(p);
 
   const v = arrowhead(x2, y2, 270);

@@ -2,21 +2,39 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { GraphViewer } from '../src/GraphViewer.js';
-import type { IonJSON, MIRBlock } from '../src/iongraph.js';
+import type { IonJSON, MIRBlock, SampleCounts } from '../src/iongraph.js';
 
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;
 
   const [ionjson, setIonJSON] = useState<IonJSON>({ functions: [] });
+  const [sampleCounts, setSampleCounts] = useState<SampleCounts | undefined>();
 
   useEffect(() => {
-    const searchFile = searchParams.get("file");
-    if (searchFile) {
-      (async () => {
+    (async () => {
+      const searchFile = searchParams.get("file");
+      if (searchFile) {
         const res = await fetch(searchFile);
-        setIonJSON(await res.json());
-      })();
-    }
+        const json = await res.json();
+        if (json["functions"]) {
+          setIonJSON(json);
+        } else {
+          setIonJSON({ functions: [json] });
+        }
+      }
+    })();
+
+    (async () => {
+      const sampleCountsFile = searchParams.get("sampleCounts");
+      if (sampleCountsFile) {
+        const res = await fetch(sampleCountsFile);
+        const json = await res.json();
+        setSampleCounts({
+          selfLineHits: new Map(json["selfLineHits"]),
+          totalLineHits: new Map(json["totalLineHits"]),
+        });
+      }
+    })();
   }, []);
 
   const [func, setFunc] = useState(searchParams.has("func") ? parseInt(searchParams.get("func")!, 10) : 0);
@@ -73,7 +91,12 @@ function TestViewer() {
       </>}
     </div>
     {funcValid && passValid && <div className="ig-relative ig-ba ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
-      <GraphViewer func={ionjson.functions[func]} pass={pass} block={block} />
+      <GraphViewer
+        func={ionjson.functions[func]}
+        pass={pass}
+        block={block}
+        sampleCounts={sampleCounts}
+      />
     </div>}
   </div>;
 }

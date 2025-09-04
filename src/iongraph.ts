@@ -48,3 +48,8 @@ export interface MIRInstruction {
 }
 
 export interface LIRBlock { }
+
+export interface SampleCounts {
+  selfLineHits: Map<number, number>,
+  totalLineHits: Map<number, number>,
+}
