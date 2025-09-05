@@ -1095,31 +1095,38 @@ export class Graph {
     el.appendChild(insnsContainer);
 
     const insns = document.createElement("table");
-    insns.innerHTML = `
-      <colgroup>
-        <col style="width: 1px">
-        <col style="width: auto">
-        ${this.sampleCounts ? `
-          <col style="width: 1px">
-          <col style="width: 1px">
-        ` : ""}
-      </colgroup>
-      ${this.sampleCounts ? `
-        <thead>
-          <tr>
-            <th></th>
-            <th></th>
-            <th class="ig-f6">Total</th>
-            <th class="ig-f6">Self</th>
-          </tr>
-        </thead>
-      ` : ""}
-    `;
     if (block.lir) {
+      insns.innerHTML = `
+        <colgroup>
+          <col style="width: 1px">
+          <col style="width: auto">
+          ${this.sampleCounts ? `
+            <col style="width: 1px">
+            <col style="width: 1px">
+          ` : ""}
+        </colgroup>
+        ${this.sampleCounts ? `
+          <thead>
+            <tr>
+              <th></th>
+              <th></th>
+              <th class="ig-f6">Total</th>
+              <th class="ig-f6">Self</th>
+            </tr>
+          </thead>
+        ` : ""}
+      `;
       for (const ins of block.lir.instructions) {
         insns.appendChild(this.renderLIRInstruction(ins));
       }
     } else {
+      insns.innerHTML = `
+        <colgroup>
+          <col style="width: 1px">
+          <col style="width: auto">
+          <col style="width: 1px">
+        </colgroup>
+      `;
       for (const ins of block.instructions) {
         insns.appendChild(this.renderMIRInstruction(ins));
       }
