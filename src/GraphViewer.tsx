@@ -82,7 +82,8 @@ export function GraphViewer({
     if (viewport.current) {
       const currentTranslation = graph.current?.translation ?? { x: 0, y: 0 };
       const currentZoom = graph.current?.zoom ?? 1;
-      const currentHeatmapMode = graph.current?.heatmapMode ?? SC_TOTAL;
+      const currentHeatmapMode = graph.current?.heatmapMode;
+      const currentHighlightedInstructions = graph.current?.highlightedInstructions;
 
       const selected = graph.current?.selectedBlockPtrs ?? new Set();
       const lastSelected = graph.current?.lastSelectedBlockPtr;
@@ -101,6 +102,7 @@ export function GraphViewer({
           graph.current = new Graph(viewport.current, pass, {
             sampleCounts,
             heatmapMode: currentHeatmapMode,
+            highlightedInstructions: currentHighlightedInstructions,
           });
           graph.current.setSelection([...selected], lastSelected);
           if (lastSelected !== undefined) {

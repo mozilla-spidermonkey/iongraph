@@ -1,4 +1,4 @@
-import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockID, BlockPtr } from "./iongraph.js";
+import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockID, BlockPtr, InsPtr } from "./iongraph.js";
 import { tweak } from "./tweak.js";
 import { assert, clamp, filerp, must } from "./utils.js";
 
@@ -126,7 +126,7 @@ export interface GraphNavigation {
 }
 
 export interface HighlightedInstruction {
-  id: number,
+  ptr: InsPtr,
   paletteColor: number,
 }
 
@@ -136,10 +136,9 @@ export interface GraphOptions {
    */
   sampleCounts?: SampleCounts,
 
-  /**
-   * The heatmap mode to use (one of SC_TOTAL or SC_SELF).
-   */
+  // Data to restore from previous graphs.
   heatmapMode?: number,
+  highlightedInstructions?: HighlightedInstruction[],
 
   /**
    * An array of CSS colors to use for highlighting instructions. You are
@@ -252,7 +251,7 @@ export class Graph {
       siblings: [],
     };
 
-    this.highlightedInstructions = [];
+    this.highlightedInstructions = options.highlightedInstructions ?? [];
     this.instructionPalette = options.instructionPalette ?? [0, 1, 2, 3, 4].map(n => `var(--ig-highlight-${n})`);
 
     const lirBlocks = new Map<BlockID, LIRBlock>();
@@ -1301,7 +1300,7 @@ export class Graph {
       e.stopPropagation();
     });
     num.addEventListener("click", () => {
-      this.toggleInstruction(ins.id);
+      this.toggleInstructionHighlight(ins.ptr);
     });
 
     opcode.querySelectorAll<HTMLElement>(".ig-use").forEach(use => {
@@ -1374,7 +1373,7 @@ export class Graph {
       e.stopPropagation();
     });
     num.addEventListener("click", () => {
-      this.toggleInstruction(ins.id);
+      this.toggleInstructionHighlight(ins.ptr);
     });
 
     return row;
@@ -1388,9 +1387,15 @@ export class Graph {
     });
   }
 
+  private removeNonexistentHighlights() {
+    this.highlightedInstructions = this.highlightedInstructions.filter(hi => {
+      return this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.ptr}"]`);
+    });
+  }
+
   private updateHighlightedInstructions() {
     for (const hi of this.highlightedInstructions) {
-      assert(this.highlightedInstructions.filter(other => other.id === hi.id).length === 1, `instruction ${hi.id} was highlighted more than once`);
+      assert(this.highlightedInstructions.filter(other => other.ptr === hi.ptr).length === 1, `instruction ${hi.ptr} was highlighted more than once`);
     }
 
     // Clear all existing highlight styles
@@ -1399,10 +1404,12 @@ export class Graph {
     });
     for (const hi of this.highlightedInstructions) {
       const color = this.instructionPalette[hi.paletteColor % this.instructionPalette.length];
-      const row = must(this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.id}"]`));
-      highlight(row, color);
+      const row = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.ptr}"]`);
+      if (row) {
+        highlight(row, color);
+      }
 
-      this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${hi.id}"]`).forEach(use => {
+      this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${hi.ptr}"]`).forEach(use => {
         highlight(use, color);
       });
     }
@@ -1613,8 +1620,10 @@ export class Graph {
     assert(this.lastSelectedBlockPtr === undefined || this.nav.siblings.includes(this.lastSelectedBlockPtr), "expected currently selected block to be in siblings array");
   }
 
-  toggleInstruction(id: number, force?: boolean, color: number | null = null) {
-    const indexOfExisting = this.highlightedInstructions.findIndex(hi => hi.id === id);
+  toggleInstructionHighlight(insPtr: InsPtr, force?: boolean, color: number | null = null) {
+    this.removeNonexistentHighlights();
+
+    const indexOfExisting = this.highlightedInstructions.findIndex(hi => hi.ptr === insPtr);
     let remove = indexOfExisting >= 0;
     if (force !== undefined) {
       remove = !force;
@@ -1636,7 +1645,7 @@ export class Graph {
         }
 
         this.highlightedInstructions.push({
-          id: id,
+          ptr: insPtr,
           paletteColor: nextPaletteColor,
         });
       }
