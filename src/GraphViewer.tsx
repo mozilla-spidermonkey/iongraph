@@ -12,6 +12,8 @@ export interface GraphViewerProps {
   sampleCounts?: SampleCounts,
 }
 
+type KeyPasses = [number | null, number | null, number | null, number | null];
+
 export function GraphViewer({
   func,
   pass: propsPass = 0,
@@ -22,11 +24,37 @@ export function GraphViewer({
   const graph = useRef<Graph | null>(null);
 
   const [passNumber, setPassNumber] = useState(propsPass);
+  const [keyPasses, setKeyPasses] = useState<KeyPasses>([null, null, null, null]);
 
   // Update current pass if the parent passes one in.
   useEffect(() => {
     setPassNumber(propsPass);
   }, [propsPass]);
+
+  useEffect(() => {
+    const newKeyPasses: KeyPasses = [null, null, null, null];
+    let lastPass: Pass | null = null;
+    for (const [i, pass] of func.passes.entries()) {
+      if (pass.mir.blocks.length > 0) {
+        if (newKeyPasses[0] === null) {
+          newKeyPasses[0] = i;
+        }
+        if (pass.lir.blocks.length === 0) {
+          newKeyPasses[1] = i;
+        }
+      }
+      if (pass.lir.blocks.length > 0) {
+        if (lastPass?.lir.blocks.length === 0) {
+          newKeyPasses[2] = i;
+        }
+        newKeyPasses[3] = i;
+      }
+
+      lastPass = pass;
+    }
+
+    setKeyPasses(newKeyPasses);
+  }, [func]);
 
   function redrawGraph(pass: Pass | undefined) {
     if (viewport.current) {
@@ -106,12 +134,24 @@ export function GraphViewer({
           graph.current?.navigate(e.key === "d" ? "right" : "left");
           graph.current?.jumpToBlock(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
         } break;
+
         case "f": {
           setPassNumber(pn => Math.min(pn + 1, func.passes.length - 1));
         } break;
         case "r": {
           setPassNumber(pn => Math.max(pn - 1, 0));
         } break;
+        case "1":
+        case "2":
+        case "3":
+        case "4": {
+          const keyPassIndex = ["1", "2", "3", "4"].indexOf(e.key);
+          const keyPass = keyPasses[keyPassIndex];
+          if (typeof keyPass === "number") {
+            setPassNumber(keyPass);
+          }
+        } break;
+
         case "c": {
           const selected = graph.current?.blocksByID.get(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
           if (selected && viewport.current) {
@@ -125,7 +165,7 @@ export function GraphViewer({
     return () => {
       window.removeEventListener("keydown", handler);
     }
-  }, [func]);
+  }, [func, keyPasses]);
 
   return <div className="ig-absolute ig-absolute-fill ig-flex">
     <div className="ig-w5 ig-br ig-flex-shrink-0 ig-overflow-y-auto ig-bg-white">
