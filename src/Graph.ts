@@ -1429,7 +1429,7 @@ export class Graph {
       if (row) {
         highlight(row, color);
 
-        const id = must(this.insIDsByPtr.get(hi.ptr));
+        const id = this.insIDsByPtr.get(hi.ptr);
         this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${id}"]`).forEach(use => {
           highlight(use, color);
         });
