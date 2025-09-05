@@ -1,4 +1,4 @@
-import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockNumber, BlockID } from "./iongraph.js";
+import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockID, BlockPtr } from "./iongraph.js";
 import { tweak } from "./tweak.js";
 import { assert, clamp, filerp, must } from "./utils.js";
 
@@ -37,7 +37,7 @@ type Block = MIRBlock & {
   el: HTMLElement,
   size: Vec2,
   layer: number,
-  loopNum: BlockNumber,
+  loopID: BlockID,
   layoutNode: LayoutNode, // this is set partway through the process but trying to type it as such is absolutely not worth it
 }
 
@@ -116,13 +116,13 @@ const log = new Proxy(console, {
 
 export interface GraphNavigation {
   /** Chain of blocks visited by navigating up and down */
-  visited: BlockID[],
+  visited: BlockPtr[],
 
   /** Current index into {@link visited} */
   currentIndex: number,
 
   /** Current set of sibling blocks to navigate sideways */
-  siblings: BlockID[],
+  siblings: BlockPtr[],
 }
 
 export interface HighlightedInstruction {
@@ -162,8 +162,8 @@ export class Graph {
   pass: Pass;
   blocks: Block[];
   blocksInOrder: Block[];
-  blocksByNum: Map<BlockNumber, Block>;
   blocksByID: Map<BlockID, Block>;
+  blocksByPtr: Map<BlockPtr, Block>;
   loops: LoopHeader[];
 
   sampleCounts: SampleCounts | undefined;
@@ -192,8 +192,8 @@ export class Graph {
   //
   // Block and instruction selection / navigation
   //
-  selectedBlockIDs: Set<BlockID>;
-  lastSelectedBlockID: BlockID | undefined;
+  selectedBlockPtrs: Set<BlockPtr>;
+  lastSelectedBlockPtr: BlockPtr | undefined;
   nav: GraphNavigation;
 
   highlightedInstructions: HighlightedInstruction[];
@@ -215,9 +215,9 @@ export class Graph {
 
     this.pass = pass;
     this.blocks = blocks;
-    this.blocksInOrder = [...blocks].sort((a, b) => a.number - b.number);
-    this.blocksByNum = new Map();
+    this.blocksInOrder = [...blocks].sort((a, b) => a.id - b.id);
     this.blocksByID = new Map();
+    this.blocksByPtr = new Map();
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
     this.sampleCounts = options.sampleCounts;
@@ -244,8 +244,8 @@ export class Graph {
     this.startMousePos = { x: 0, y: 0 };
     this.lastMousePos = { x: 0, y: 0 };
 
-    this.selectedBlockIDs = new Set();
-    this.lastSelectedBlockID = undefined;
+    this.selectedBlockPtrs = new Set();
+    this.lastSelectedBlockPtr = undefined;
     this.nav = {
       visited: [],
       currentIndex: -1,
@@ -255,23 +255,23 @@ export class Graph {
     this.highlightedInstructions = [];
     this.instructionPalette = options.instructionPalette ?? [0, 1, 2, 3, 4].map(n => `var(--ig-highlight-${n})`);
 
-    const lirBlocks = new Map<number, LIRBlock>();
+    const lirBlocks = new Map<BlockID, LIRBlock>();
     for (const lir of pass.lir.blocks) {
-      lirBlocks.set(lir.number, lir);
+      lirBlocks.set(lir.id, lir);
     }
 
     // Initialize blocks
     for (const block of blocks) {
-      this.blocksByNum.set(block.number, block);
       this.blocksByID.set(block.id, block);
+      this.blocksByPtr.set(block.ptr, block);
 
-      block.lir = lirBlocks.get(block.number) ?? null;
+      block.lir = lirBlocks.get(block.id) ?? null;
 
       const el = this.renderBlock(block);
       block.el = el;
 
       block.layer = -1;
-      block.loopNum = -1 as BlockNumber;
+      block.loopID = -1 as BlockID;
       if (block.attributes.includes("loopheader")) {
         const lh = block as LoopHeader;
         lh.loopHeight = 0;
@@ -297,8 +297,8 @@ export class Graph {
 
     // After putting all blocks in our map, fill out block-to-block references.
     for (const block of blocks) {
-      block.preds = block.predecessors.map(num => must(this.blocksByNum.get(num)));
-      block.succs = block.successors.map(num => must(this.blocksByNum.get(num)));
+      block.preds = block.predecessors.map(id => must(this.blocksByID.get(id)));
+      block.succs = block.successors.map(id => must(this.blocksByID.get(id)));
 
       if (isTrueLH(block)) {
         const backedges = block.preds.filter(b => b.attributes.includes("backedge"));
@@ -347,39 +347,39 @@ export class Graph {
   // block has lesser loopDepth than its parent, that means it is outside
   // at least one loop, and the loop it belongs to can be looked up by loop
   // depth.
-  private findLoops(block: Block, loopNumsByDepth: BlockNumber[] | null = null) {
-    if (loopNumsByDepth === null) {
-      loopNumsByDepth = [block.number];
+  private findLoops(block: Block, loopIDsByDepth: BlockID[] | null = null) {
+    if (loopIDsByDepth === null) {
+      loopIDsByDepth = [block.id];
     }
 
     // Early out if we already have a loop ID.
-    if (block.loopNum >= 0) {
+    if (block.loopID >= 0) {
       return;
     }
 
     if (isTrueLH(block)) {
-      assert(block.loopDepth === loopNumsByDepth.length);
-      const parentNum = loopNumsByDepth[loopNumsByDepth.length - 1];
-      const parent = asLH(this.blocksByNum.get(parentNum));
+      assert(block.loopDepth === loopIDsByDepth.length);
+      const parentID = loopIDsByDepth[loopIDsByDepth.length - 1];
+      const parent = asLH(this.blocksByID.get(parentID));
       block.parentLoop = parent;
 
-      loopNumsByDepth = [...loopNumsByDepth, block.number];
+      loopIDsByDepth = [...loopIDsByDepth, block.id];
     }
 
-    if (block.loopDepth < loopNumsByDepth.length - 1) {
-      loopNumsByDepth = loopNumsByDepth.slice(0, block.loopDepth + 1);
-    } else if (block.loopDepth >= loopNumsByDepth.length) {
+    if (block.loopDepth < loopIDsByDepth.length - 1) {
+      loopIDsByDepth = loopIDsByDepth.slice(0, block.loopDepth + 1);
+    } else if (block.loopDepth >= loopIDsByDepth.length) {
       // Sometimes the MIR optimization process can turn loop headers into
       // normal blocks, which means we have blocks that spuriously increase in
       // loop depth. In this case, just force the block back to a lesser loop
       // depth.
-      block.loopDepth = loopNumsByDepth.length - 1;
+      block.loopDepth = loopIDsByDepth.length - 1;
     }
-    block.loopNum = loopNumsByDepth[block.loopDepth];
+    block.loopID = loopIDsByDepth[block.loopDepth];
 
     if (!block.attributes.includes("backedge")) {
       for (const succ of block.succs) {
-        this.findLoops(succ, loopNumsByDepth);
+        this.findLoops(succ, loopIDsByDepth);
       }
     }
   }
@@ -397,7 +397,7 @@ export class Graph {
     block.layer = Math.max(block.layer, layer);
     this.numLayers = Math.max(block.layer + 1, this.numLayers);
 
-    let loopHeader: LoopHeader | null = asLH(this.blocksByNum.get(block.loopNum));
+    let loopHeader: LoopHeader | null = asLH(this.blocksByID.get(block.loopID));
     while (loopHeader) {
       loopHeader.loopHeight = Math.max(loopHeader.loopHeight, block.layer - loopHeader.layer + 1);
       loopHeader = loopHeader.parentLoop;
@@ -407,7 +407,7 @@ export class Graph {
       if (succ.loopDepth < block.loopDepth) {
         // This is an outgoing edge from the current loop.
         // Track it on our current loop's header to be layered later.
-        const loopHeader = asLH(this.blocksByNum.get(block.loopNum));
+        const loopHeader = asLH(this.blocksByID.get(block.loopID));
         loopHeader.outgoingEdges.push(succ);
       } else {
         this.layer(succ, layer + 1);
@@ -474,7 +474,7 @@ export class Graph {
       for (const edge of activeEdges) {
         let dummy: DummyNode;
 
-        const existingDummy = dummiesByDest.get(edge.dstBlock.number)
+        const existingDummy = dummiesByDest.get(edge.dstBlock.id)
         if (existingDummy) {
           // Collapse multiple edges into a single dummy node.
           connectNodes(edge.src, edge.srcPort, existingDummy);
@@ -494,7 +494,7 @@ export class Graph {
           };
           connectNodes(edge.src, edge.srcPort, newDummy);
           layoutNodesByLayer[layer].push(newDummy);
-          dummiesByDest.set(edge.dstBlock.number, newDummy);
+          dummiesByDest.set(edge.dstBlock.id, newDummy);
           dummy = newDummy;
         }
 
@@ -505,21 +505,21 @@ export class Graph {
 
       // Track which blocks will get backedge dummy nodes.
       interface PendingLoopDummy {
-        loopNum: BlockNumber,
+        loopID: BlockID,
         block: Block,
       }
       const pendingLoopDummies: PendingLoopDummy[] = [];
       for (const block of blocks) {
-        let currentLoopHeader = asLH(this.blocksByNum.get(block.loopNum));
+        let currentLoopHeader = asLH(this.blocksByID.get(block.loopID));
         while (isTrueLH(currentLoopHeader)) {
-          const existing = pendingLoopDummies.find(d => d.loopNum === currentLoopHeader.number);
+          const existing = pendingLoopDummies.find(d => d.loopID === currentLoopHeader.id);
           if (existing) {
             // We have seen this loop before but have a new rightmost block for
             // it. Update which block should get the dummy.
             existing.block = block;
           } else {
             // This loop has not been seen before, so track it.
-            pendingLoopDummies.push({ loopNum: currentLoopHeader.number, block: block });
+            pendingLoopDummies.push({ loopID: currentLoopHeader.id, block: block });
           }
 
           const parentLoop = currentLoopHeader.parentLoop;
@@ -554,7 +554,7 @@ export class Graph {
 
         // Create dummy nodes for backedges
         for (const loopDummy of pendingLoopDummies.filter(d => d.block === block)) {
-          const backedge = asLH(this.blocksByNum.get(loopDummy.loopNum)).backedge;
+          const backedge = asLH(this.blocksByID.get(loopDummy.loopID)).backedge;
           const backedgeDummy: DummyNode = {
             id: nodeID++ as LayoutNodeID,
             pos: { x: CONTENT_PADDING, y: CONTENT_PADDING },
@@ -652,7 +652,7 @@ export class Graph {
     for (const layer of layoutNodesByLayer) {
       for (const node of layer) {
         if (node.block) {
-          assert(node.dstNodes.length === node.block.successors.length, `expected node ${node.id} for block ${node.block.number} to have ${node.block.successors.length} destination nodes, but got ${node.dstNodes.length} instead`);
+          assert(node.dstNodes.length === node.block.successors.length, `expected node ${node.id} for block ${node.block.id} to have ${node.block.successors.length} destination nodes, but got ${node.dstNodes.length} instead`);
         } else {
           assert(node.dstNodes.length === 1, `expected dummy node ${node.id} to have only one destination node, but got ${node.dstNodes.length} instead`);
         }
@@ -686,7 +686,7 @@ export class Graph {
             continue;
           }
 
-          const loopHeader = node.block.loopNum !== null ? asLH(this.blocksByNum.get(node.block.loopNum)) : null;
+          const loopHeader = node.block.loopID !== null ? asLH(this.blocksByID.get(node.block.loopID)) : null;
           if (loopHeader) {
             const loopHeaderNode = loopHeader.layoutNode;
             node.pos.x = Math.max(node.pos.x, loopHeaderNode.pos.x);
@@ -708,7 +708,7 @@ export class Graph {
       for (const dummy of dummies(layoutNodesByLayer)) {
         const backedge = dummy.dstBlock;
         const x = dummyLinePositions.get(backedge);
-        assert(x, `no position for backedge ${backedge.number}`);
+        assert(x, `no position for backedge ${backedge.id}`);
         dummy.pos.x = x;
       }
 
@@ -763,7 +763,7 @@ export class Graph {
           continue;
         }
         const x = dummyRunPositions.get(dummy.dstBlock);
-        assert(x, `no position for run to block ${dummy.dstBlock.number}`);
+        assert(x, `no position for run to block ${dummy.dstBlock.id}`);
         dummy.pos.x = x;
       }
     };
@@ -1075,8 +1075,8 @@ export class Graph {
     for (const att of block.attributes) {
       el.classList.add(`ig-block-att-${att}`);
     }
+    el.setAttribute("data-ig-block-ptr", `${block.ptr}`);
     el.setAttribute("data-ig-block-id", `${block.id}`);
-    el.setAttribute("data-ig-block-number", `${block.number}`);
 
     let desc = "";
     if (block.attributes.includes("loopheader")) {
@@ -1087,7 +1087,7 @@ export class Graph {
       desc = " (split edge)";
     }
     const header = document.createElement("h2");
-    header.innerText = `Block ${block.number}${desc}`;
+    header.innerText = `Block ${block.id}${desc}`;
     el.appendChild(header);
 
     const insnsContainer = document.createElement("div");
@@ -1145,9 +1145,9 @@ export class Graph {
       e.stopPropagation();
 
       if (!e.shiftKey) {
-        this.selectedBlockIDs.clear();
+        this.selectedBlockPtrs.clear();
       }
-      this.setSelection([], block.id);
+      this.setSelection([], block.ptr);
     });
 
     return el;
@@ -1375,9 +1375,9 @@ export class Graph {
 
   private renderSelection() {
     this.graphContainer.querySelectorAll(".ig-block").forEach(blockEl => {
-      const id = parseInt(must(blockEl.getAttribute("data-ig-block-id")), 10) as BlockID;
-      blockEl.classList.toggle("ig-selected", this.selectedBlockIDs.has(id));
-      blockEl.classList.toggle("ig-last-selected", this.lastSelectedBlockID === id);
+      const ptr = parseInt(must(blockEl.getAttribute("data-ig-block-ptr")), 10) as BlockPtr;
+      blockEl.classList.toggle("ig-selected", this.selectedBlockPtrs.has(ptr));
+      blockEl.classList.toggle("ig-last-selected", this.lastSelectedBlockPtr === ptr);
     });
   }
 
@@ -1503,9 +1503,9 @@ export class Graph {
     ro.observe(this.viewport);
   }
 
-  setSelection(blockIDs: BlockID[], lastSelectedID?: BlockID) {
-    this.setSelectionRaw(blockIDs, lastSelectedID);
-    if (lastSelectedID === undefined) {
+  setSelection(blockPtrs: BlockPtr[], lastSelectedPtr?: BlockPtr) {
+    this.setSelectionRaw(blockPtrs, lastSelectedPtr);
+    if (lastSelectedPtr === undefined) {
       this.nav = {
         visited: [],
         currentIndex: -1,
@@ -1513,26 +1513,26 @@ export class Graph {
       };
     } else {
       this.nav = {
-        visited: [lastSelectedID],
+        visited: [lastSelectedPtr],
         currentIndex: 0,
-        siblings: [lastSelectedID],
+        siblings: [lastSelectedPtr],
       };
     }
   }
 
-  private setSelectionRaw(blockIDs: BlockID[], lastSelectedID: BlockID | undefined) {
-    this.selectedBlockIDs.clear();
-    for (const blockID of [...blockIDs, lastSelectedID ?? -1 as BlockID]) {
-      if (this.blocksByID.has(blockID)) {
-        this.selectedBlockIDs.add(blockID);
+  private setSelectionRaw(blockPtrs: BlockPtr[], lastSelectedPtr: BlockPtr | undefined) {
+    this.selectedBlockPtrs.clear();
+    for (const blockPtr of [...blockPtrs, lastSelectedPtr ?? -1 as BlockPtr]) {
+      if (this.blocksByPtr.has(blockPtr)) {
+        this.selectedBlockPtrs.add(blockPtr);
       }
     }
-    this.lastSelectedBlockID = this.blocksByID.has(lastSelectedID ?? -1 as BlockID) ? lastSelectedID : undefined;
+    this.lastSelectedBlockPtr = this.blocksByPtr.has(lastSelectedPtr ?? -1 as BlockPtr) ? lastSelectedPtr : undefined;
     this.renderSelection();
   }
 
   navigate(dir: "down" | "up" | "left" | "right") {
-    const selected = this.lastSelectedBlockID;
+    const selected = this.lastSelectedBlockPtr;
 
     if (dir === "down" || dir === "up") {
       // Vertical navigation
@@ -1544,26 +1544,26 @@ export class Graph {
         const fauxSiblings = dir === "down" ? rootBlocks : leafBlocks;
         const firstBlock = fauxSiblings[0];
         assert(firstBlock);
-        this.setSelectionRaw([], firstBlock.id);
+        this.setSelectionRaw([], firstBlock.ptr);
         this.nav = {
-          visited: [firstBlock.id],
+          visited: [firstBlock.ptr],
           currentIndex: 0,
-          siblings: fauxSiblings.map(b => b.id),
+          siblings: fauxSiblings.map(b => b.ptr),
         };
       } else {
         // Move to the current block's successors or predecessors,
         // respecting the visited stack
-        const currentBlock = must(this.blocksByID.get(selected));
-        const nextSiblings: BlockID[] = (
+        const currentBlock = must(this.blocksByPtr.get(selected));
+        const nextSiblings: BlockPtr[] = (
           dir === "down"
             ? currentBlock.successors
             : currentBlock.predecessors
-        ).map(n => must(this.blocksByNum.get(n)).id);
+        ).map(id => must(this.blocksByID.get(id)).ptr);
 
         // If we have navigated to a different sibling at our current point in
         // the stack, we have gone off our prior track and start a new one.
-        if (currentBlock.id !== this.nav.visited[this.nav.currentIndex]) {
-          this.nav.visited = [currentBlock.id];
+        if (currentBlock.ptr !== this.nav.visited[this.nav.currentIndex]) {
+          this.nav.visited = [currentBlock.ptr];
           this.nav.currentIndex = 0;
         }
 
@@ -1574,7 +1574,7 @@ export class Graph {
           this.nav.siblings = nextSiblings;
         } else {
           // Push a new block onto the visited stack (either at the front or back)
-          const next: BlockID | undefined = nextSiblings[0];
+          const next: BlockPtr | undefined = nextSiblings[0];
           if (next !== undefined) {
             if (dir === "down") {
               this.nav.visited.push(next);
@@ -1603,7 +1603,7 @@ export class Graph {
     }
 
     assert(this.nav.visited.length === 0 || this.nav.siblings.includes(this.nav.visited[this.nav.currentIndex]), "expected currently visited node to be in the siblings array");
-    assert(this.lastSelectedBlockID === undefined || this.nav.siblings.includes(this.lastSelectedBlockID), "expected currently selected block to be in siblings array");
+    assert(this.lastSelectedBlockPtr === undefined || this.nav.siblings.includes(this.lastSelectedBlockPtr), "expected currently selected block to be in siblings array");
   }
 
   toggleInstruction(id: number, force?: boolean, color: number | null = null) {
@@ -1719,8 +1719,8 @@ export class Graph {
     await new Promise(res => setTimeout(res, 0));
   }
 
-  jumpToBlock(blockID: BlockID, zoom = this.zoom, animate = true) {
-    const selected = this.blocksByID.get(blockID);
+  jumpToBlock(blockPtr: BlockPtr, zoom = this.zoom, animate = true) {
+    const selected = this.blocksByPtr.get(blockPtr);
     if (!selected) {
       return;
     }

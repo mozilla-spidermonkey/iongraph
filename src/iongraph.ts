@@ -1,4 +1,5 @@
 export interface IonJSON {
+  version: number,
   functions: Func[],
 }
 
@@ -17,74 +18,136 @@ export interface Pass {
   },
 }
 
+export type BlockPtr = number & { readonly __brand: "BlockPtr" }
 export type BlockID = number & { readonly __brand: "BlockID" }
-export type BlockNumber = number & { readonly __brand: "BlockNumber" }
+export type InsPtr = number & { readonly __brand: "InsPtr" }
+export type InsID = number & { readonly __brand: "InsID" }
 
 export interface MIRBlock {
+  ptr: BlockPtr,
   id: BlockID,
-  number: BlockNumber,
   loopDepth: number,
-  attributes: string[], // TODO: Specific
-  predecessors: BlockNumber[],
-  successors: BlockNumber[],
+  attributes: string[],
+  predecessors: BlockID[],
+  successors: BlockID[],
   instructions: MIRInstruction[],
 }
 
-export interface LIRBlock {
-  id: BlockID,
-  number: BlockNumber,
-  instructions: LIRInstruction[],
-}
-
-export interface LIRInstruction {
-  id: number,
-  opcode: string,
-  defs: number[],
-}
-
 export interface MIRInstruction {
-  id: number,
+  ptr: InsPtr,
+  id: InsID,
   opcode: string,
-  attributes: string[], // TODO: Specific
+  attributes: string[],
   inputs: number[],
   uses: number[],
   memInputs: unknown[], // TODO
   type: string,
 }
 
-export interface LIRBlock { }
+export interface LIRBlock {
+  ptr: BlockPtr,
+  id: BlockID,
+  instructions: LIRInstruction[],
+}
+
+export interface LIRInstruction {
+  ptr: InsPtr,
+  id: InsID,
+  mirPtr: number | null,
+  opcode: string,
+  defs: number[],
+}
 
 export interface SampleCounts {
   selfLineHits: Map<number, number>,
   totalLineHits: Map<number, number>,
 }
 
-export type MigratedIonJSON = IonJSON & { readonly __brand: "MigratedIonJSON" };
-export type MigratedFunc = Func & { readonly __brand: "MigratedIonFunc" };
-
-export function migrate(ionJSON: IonJSON): MigratedIonJSON {
-  for (const f of ionJSON.functions) {
-    migrateFunc(f);
+/**
+ * Migrate ion JSON data to the latest version of the schema. A history of
+ * schema changes can be found at the end of the file.
+ */
+export function migrate(ionJSON: any): IonJSON {
+  if (ionJSON.version === undefined) {
+    ionJSON.version = 0;
   }
 
-  return ionJSON as MigratedIonJSON;
+  for (const f of ionJSON.functions) {
+    migrateFunc(f, ionJSON.version);
+  }
+
+  return ionJSON;
 }
 
-export function migrateFunc(f: Func): MigratedFunc {
+function migrateFunc(f: any, version: number): Func {
   for (const p of f.passes) {
     for (const b of p.mir.blocks) {
-      // TODO: Remove for 1.0
-      if (b.id === undefined) {
-        b.id = b.number as any as BlockID;
-      }
+      migrateMIRBlock(b, version);
     }
     for (const b of p.lir.blocks) {
-      // TODO: Remove for 1.0
-      if (b.id === undefined) {
-        b.id = b.number as any as BlockID;
-      }
+      migrateLIRBlock(b, version);
     }
   }
 
-  return f as MigratedFunc;
+  return f;
 }
+
+function migrateMIRBlock(b: any, version: number): MIRBlock {
+  if (version === 0) {
+    b.ptr = (b.id ?? b.number) as any as BlockPtr;
+    b.id = b.number;
+  }
+
+  for (const ins of b.instructions) {
+    migrateMIRInstruction(ins, version);
+  }
+
+  return b;
+}
+
+function migrateMIRInstruction(ins: any, version: number): MIRInstruction {
+  if (version === 0) {
+    ins.ptr = ins.id;
+  }
+
+  return ins;
+}
+
+function migrateLIRBlock(b: any, version: number): MIRBlock {
+  if (version === 0) {
+    b.ptr = (b.id ?? b.number) as any as BlockPtr;
+    b.id = b.number;
+  }
+
+  for (const ins of b.instructions) {
+    migrateLIRInstruction(ins, version);
+  }
+
+  return b;
+}
+
+function migrateLIRInstruction(ins: any, version: number): LIRInstruction {
+  if (version === 0) {
+    ins.ptr = ins.id;
+    ins.mirPtr = null;
+  }
+
+  return ins;
+}
+
+/*
+# History of the ion.json schema
+
+- Version 0: "Legacy" ion.json as used by sstangl's iongraph tool. Never
+  explicitly versioned.
+
+- Version 1: Created for the release of the web-based iongraph tool. The first
+  explicitly-versioned schema. Key changes:
+  - Renamed "number" to "id" on MIR and LIR blocks for consistency with C++.
+  - Added "ptr" to MIR blocks and MIR and LIR instructions for stable
+    identification across passes. LIR blocks do not need this because they are
+    stably identified by their corresponding MIR block.
+  - Added "mirPtr" to LIR instructions so that they can be traced back to their
+    MIR instruction. May be null.
+
+*/

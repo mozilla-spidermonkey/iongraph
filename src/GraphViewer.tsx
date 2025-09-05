@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { classes } from "./classes.js";
 import { Graph, SC_TOTAL } from "./Graph.js";
-import type { BlockID, Func, Pass, SampleCounts } from "./iongraph.js";
+import type { BlockPtr, Func, Pass, SampleCounts } from "./iongraph.js";
 import { must } from "./utils.js";
 import { dequal } from "./dequal.js";
 
@@ -84,11 +84,11 @@ export function GraphViewer({
       const currentZoom = graph.current?.zoom ?? 1;
       const currentHeatmapMode = graph.current?.heatmapMode ?? SC_TOTAL;
 
-      const selected = graph.current?.selectedBlockIDs ?? new Set();
-      const lastSelected = graph.current?.lastSelectedBlockID;
+      const selected = graph.current?.selectedBlockPtrs ?? new Set();
+      const lastSelected = graph.current?.lastSelectedBlockPtr;
       let offsetX = 0, offsetY = 0;
       if (lastSelected !== undefined) {
-        const block = must(must(graph.current).blocksByID.get(lastSelected));
+        const block = must(must(graph.current).blocksByPtr.get(lastSelected));
         offsetX = block.layoutNode.pos.x - (-graph.current!.translation.x / graph.current!.zoom);
         offsetY = block.layoutNode.pos.y - (-graph.current!.translation.y / graph.current!.zoom);
       }
@@ -104,7 +104,7 @@ export function GraphViewer({
           });
           graph.current.setSelection([...selected], lastSelected);
           if (lastSelected !== undefined) {
-            const newSelectedBlock = graph.current.blocksByID.get(lastSelected);
+            const newSelectedBlock = graph.current.blocksByPtr.get(lastSelected);
             if (newSelectedBlock) { // The desired selected block still exists
               graph.current.goToCoordinates(
                 {
@@ -151,12 +151,12 @@ export function GraphViewer({
         case "w":
         case "s": {
           graph.current?.navigate(e.key === "s" ? "down" : "up");
-          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
+          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockPtr ?? -1 as BlockPtr);
         } break;
         case "a":
         case "d": {
           graph.current?.navigate(e.key === "d" ? "right" : "left");
-          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
+          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockPtr ?? -1 as BlockPtr);
         } break;
 
         case "f": {
@@ -193,9 +193,9 @@ export function GraphViewer({
         } break;
 
         case "c": {
-          const selected = graph.current?.blocksByID.get(graph.current?.lastSelectedBlockID ?? -1 as BlockID);
+          const selected = graph.current?.blocksByPtr.get(graph.current?.lastSelectedBlockPtr ?? -1 as BlockPtr);
           if (selected && viewport.current) {
-            graph.current?.jumpToBlock(selected.id, 1);
+            graph.current?.jumpToBlock(selected.ptr, 1);
           }
         } break;
       }

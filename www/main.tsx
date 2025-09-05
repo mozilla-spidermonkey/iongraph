@@ -2,12 +2,12 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { GraphViewer } from '../src/GraphViewer.js';
-import { Func, migrate, MigratedIonJSON, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
+import { Func, migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
 
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;
 
-  const [ionjson, setIonJSON] = useState<MigratedIonJSON>(migrate({ functions: [] }));
+  const [ionjson, setIonJSON] = useState<IonJSON>(migrate({ functions: [] }));
   const [sampleCounts, setSampleCounts] = useState<SampleCounts | undefined>();
 
   useEffect(() => {
@@ -19,9 +19,9 @@ function TestViewer() {
 
         // TODO: Remove this "functions" path for 1.0
         if (json["functions"]) {
-          setIonJSON(migrate(json as IonJSON));
+          setIonJSON(migrate(json));
         } else {
-          setIonJSON(migrate({ functions: [json as Func] }));
+          setIonJSON(migrate({ functions: [json] }));
         }
       }
     })();
@@ -50,7 +50,7 @@ function TestViewer() {
     }
 
     const file = input.files[0];
-    const newJSON = JSON.parse(await file.text()) as IonJSON;
+    const newJSON = JSON.parse(await file.text());
     setIonJSON(migrate(newJSON));
   }
 
