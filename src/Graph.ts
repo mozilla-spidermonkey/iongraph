@@ -238,7 +238,7 @@ export class Graph {
     };
 
     this.highlightedInstructions = [];
-    this.instructionPalette = options.instructionPalette ?? [0, 1, 2, 3].map(n => `var(--ig-highlight-${n})`);
+    this.instructionPalette = options.instructionPalette ?? [0, 1, 2, 3, 4].map(n => `var(--ig-highlight-${n})`);
 
     const lirBlocks = new Map<number, LIRBlock>();
     for (const lir of pass.lir.blocks) {
