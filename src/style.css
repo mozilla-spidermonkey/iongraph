@@ -383,11 +383,6 @@ a.ig-link-normal {
   }
 }
 
-.ig-highlightable {
-  --ig-highlight-color: transparent;
-  background-color: var(--ig-highlight-color);
-}
-
 .ig-ins-num {
   text-align: right;
   cursor: pointer;
@@ -455,4 +450,9 @@ a.ig-link-normal {
         color-mix(in srgb, transparent, var(--ig-cold-color) calc(clamp(0, calc(var(--ig-hotness) * 1000000), 1) * 100%)),
         var(--ig-cool-color) clamp(0%, calc((var(--ig-hotness) / var(--ig-cool-threshold)) * 100%), 100%)),
       var(--ig-hot-color) clamp(0%, calc(((var(--ig-hotness) - var(--ig-cool-threshold)) / (1 - var(--ig-cool-threshold)) * 100%)), 100%));
+}
+
+.ig-highlight {
+  --ig-highlight-color: transparent;
+  background-color: var(--ig-highlight-color);
 }

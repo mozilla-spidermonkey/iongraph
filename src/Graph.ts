@@ -1,4 +1,4 @@
-import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockID, BlockPtr, InsPtr } from "./iongraph.js";
+import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockID, BlockPtr, InsPtr, InsID } from "./iongraph.js";
 import { tweak } from "./tweak.js";
 import { assert, clamp, filerp, must } from "./utils.js";
 
@@ -1273,9 +1273,10 @@ export class Graph {
 
     const row = document.createElement("tr");
     row.classList.add(
-      "ig-ins", "ig-ins-mir", "ig-can-flash", "ig-highlightable",
+      "ig-ins", "ig-ins-mir", "ig-can-flash",
       ...ins.attributes.map(att => `ig-ins-att-${att}`),
     );
+    row.setAttribute("data-ig-ins-ptr", `${ins.ptr}`);
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
     const num = document.createElement("td");
@@ -1309,7 +1310,7 @@ export class Graph {
         e.stopPropagation();
       });
       use.addEventListener("click", e => {
-        const id = parseInt(must(use.getAttribute("data-ig-use")), 10);
+        const id = parseInt(must(use.getAttribute("data-ig-use")), 10) as InsID;
         this.jumpToInstruction(id, 1);
       });
     });
@@ -1323,7 +1324,8 @@ export class Graph {
       .replace('<-', '←');
 
     const row = document.createElement("tr");
-    row.classList.add("ig-ins", "ig-ins-lir", "ig-hotness", "ig-highlightable");
+    row.classList.add("ig-ins", "ig-ins-lir", "ig-hotness");
+    row.setAttribute("data-ig-ins-ptr", `${ins.ptr}`);
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
     const num = document.createElement("td");
@@ -1389,7 +1391,7 @@ export class Graph {
 
   private removeNonexistentHighlights() {
     this.highlightedInstructions = this.highlightedInstructions.filter(hi => {
-      return this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.ptr}"]`);
+      return this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-ptr="${hi.ptr}"]`);
     });
   }
 
@@ -1404,7 +1406,7 @@ export class Graph {
     });
     for (const hi of this.highlightedInstructions) {
       const color = this.instructionPalette[hi.paletteColor % this.instructionPalette.length];
-      const row = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.ptr}"]`);
+      const row = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-ptr="${hi.ptr}"]`);
       if (row) {
         highlight(row, color);
       }
@@ -1620,7 +1622,7 @@ export class Graph {
     assert(this.lastSelectedBlockPtr === undefined || this.nav.siblings.includes(this.lastSelectedBlockPtr), "expected currently selected block to be in siblings array");
   }
 
-  toggleInstructionHighlight(insPtr: InsPtr, force?: boolean, color: number | null = null) {
+  toggleInstructionHighlight(insPtr: InsPtr, force?: boolean) {
     this.removeNonexistentHighlights();
 
     const indexOfExisting = this.highlightedInstructions.findIndex(hi => hi.ptr === insPtr);
@@ -1745,10 +1747,10 @@ export class Graph {
     this.goToCoordinates(coords, zoom, animate);
   }
 
-  async jumpToInstruction(ins: number, zoom = this.zoom, animate = true) {
+  async jumpToInstruction(insID: InsID, zoom = this.zoom, animate = true) {
     // Since we don't have graph-layout coordinates for instructions, we have
     // to reverse engineer them from their client position.
-    const insEl = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${ins}"]`);
+    const insEl = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${insID}"]`);
     if (!insEl) {
       return;
     }
@@ -2013,10 +2015,12 @@ function arrowhead(x: number, y: number, rot: number, size = 5): SVGElement {
   return p;
 }
 
-function highlight(el: { style: CSSStyleDeclaration }, color: string) {
+function highlight(el: HTMLElement, color: string) {
+  el.classList.add("ig-highlight");
   el.style.setProperty("--ig-highlight-color", color);
 }
 
-function clearHighlight(el: { style: CSSStyleDeclaration }) {
+function clearHighlight(el: HTMLElement) {
+  el.classList.remove("ig-highlight");
   el.style.setProperty("--ig-highlight-color", "transparent");
 }
