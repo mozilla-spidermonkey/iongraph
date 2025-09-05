@@ -1376,6 +1376,10 @@ export class Graph {
       this.updatePanAndZoom();
     });
     this.viewport.addEventListener("pointerdown", e => {
+      if (e.pointerType === "mouse" && !(e.button === 0 || e.button === 1)) {
+        return;
+      }
+
       e.preventDefault();
       this.viewport.setPointerCapture(e.pointerId);
       this.startMousePos = {
