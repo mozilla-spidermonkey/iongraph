@@ -2,34 +2,8 @@
 
 <head>
   <title>MIR Graph</title>
-  <style>
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-    }
-
-    #container {
-      position: absolute;
-      left: 0;
-      top: 0;
-      right: 0;
-      bottom: 0;
-    }
-
-    .tweaks-panel {
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      padding: 1rem;
-      border: 1px solid black;
-      border-width: 1px 0 0 1px;
-      background-color: white;
-    }
-  </style>
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./standalone.css">
 </head>
 
 <body>
@@ -40,6 +14,10 @@
     new EventSource('/esbuild').addEventListener('change', () => location.reload());
 
     render(window.reactRoot);
-    document.querySelector("body").appendChild(window.tweaks.container);
+
+    console.log("To show the tweaks panel, run showTweaks().");
+    window.showTweaks = () => {
+      document.querySelector("body").appendChild(window.tweaks.container);
+    };
   </script>
 </body>

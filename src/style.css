@@ -17,21 +17,26 @@
 
   --ig-text-color: black;
   --ig-text-color-dim: #777;
-  --ig-background-primary: orange;
-  --ig-block-selected: #ffc863;
-  --ig-block-last-selected: orange;
+  --ig-background-primary: #ffb54e;
+  --ig-background-light: white;
+  --ig-border-color: #0c0c0d;
 
-  --ig-loop-header-color: #0e7924;
-  --ig-movable-color: blue;
+  --ig-block-header-color: #0c0c0d;
+  --ig-loop-header-color: #1fa411;
+  --ig-movable-color: #1048af;
   --ig-rob-color: #444;
   --ig-in-worklist-color: red;
 
-  --ig-highlight-0: orange;
-  --ig-highlight-1: pink;
-  --ig-highlight-2: skyblue;
-  --ig-highlight-3: lightgreen;
+  --ig-block-selected: #ffc863;
+  --ig-block-last-selected: #ffb54e;
 
-  --ig-flash-color: #ffa500;
+  --ig-highlight-0: #ffb54e;
+  --ig-highlight-1: #ffb5c5;
+  --ig-highlight-2: #a4cbff;
+  --ig-highlight-3: #8be182;
+  --ig-highlight-4: #d9a4fd;
+
+  --ig-flash-color: #ffb54e;
 
   /*
    * The heatmap of sample counts will effectively be sampled from a gradient:
@@ -43,8 +48,8 @@
    * threshold indicates where the instruction will be fully colored and
    * noticeable to the user.
    */
-  --ig-hot-color: #ff897d;
-  --ig-cool-color: #ffe50e;
+  --ig-hot-color: #ff849e;
+  --ig-cool-color: #ffe546;
   --ig-cool-threshold: 0.2;
 }
 
@@ -131,26 +136,31 @@ a.ig-link-normal {
 .ig-ba {
   border-style: solid;
   border-width: 1px;
+  border-color: var(--ig-border-color);
 }
 
 .ig-bt {
   border-top-style: solid;
   border-top-width: 1px;
+  border-color: var(--ig-border-color);
 }
 
 .ig-br {
   border-right-style: solid;
   border-right-width: 1px;
+  border-color: var(--ig-border-color);
 }
 
 .ig-bb {
   border-bottom-style: solid;
   border-bottom-width: 1px;
+  border-color: var(--ig-border-color);
 }
 
 .ig-bl {
   border-left-style: solid;
   border-left-width: 1px;
+  border-color: var(--ig-border-color);
 }
 
 .ig-pa1 {
@@ -291,6 +301,10 @@ a.ig-link-normal {
   text-align: center;
 }
 
+.ig-bg-white {
+  background-color: var(--ig-background-light);
+}
+
 .ig-bg-primary {
   background-color: var(--ig-background-primary);
 }
@@ -315,22 +329,21 @@ a.ig-link-normal {
 
 .ig-block {
   position: absolute;
-  background-color: white;
 
   h2 {
     font-size: inherit;
     text-align: center;
     margin: 0;
-    background-color: black;
+    background-color: var(--ig-block-header-color);
     color: white;
     padding: 0 1rem;
-    border: 1px solid black;
+    border: 1px solid var(--ig-border-color);
     border-width: 1px 1px 0;
   }
 
   .ig-instructions {
     padding: 0.5rem;
-    border: 1px solid black;
+    border: 1px solid var(--ig-border-color);
     border-width: 0 1px 1px;
 
     table {
@@ -341,26 +354,6 @@ a.ig-link-normal {
       white-space: nowrap;
       padding: 0.1rem 0.5rem;
     }
-  }
-
-  .ig-ins-num {
-    text-align: right;
-    cursor: pointer;
-  }
-
-  .ig-ins-type {
-    text-align: right;
-  }
-
-  .ig-ins-samples {
-    font-size: 0.875rem;
-    text-align: right;
-  }
-
-  .ig-use {
-    padding: 0 0.25rem;
-    border-radius: 3px;
-    cursor: pointer;
   }
 
   &.ig-selected {
@@ -383,6 +376,31 @@ a.ig-link-normal {
     border-style: dotted;
     border-width: 0 2px 2px;
   }
+}
+
+.ig-highlightable {
+  --ig-highlight-color: transparent;
+  background-color: var(--ig-highlight-color);
+}
+
+.ig-ins-num {
+  text-align: right;
+  cursor: pointer;
+}
+
+.ig-ins-type {
+  text-align: right;
+}
+
+.ig-ins-samples {
+  font-size: 0.875rem;
+  text-align: right;
+}
+
+.ig-use {
+  padding: 0 0.25rem;
+  border-radius: 2px;
+  cursor: pointer;
 }
 
 .ig-edge-label {
@@ -420,9 +438,15 @@ a.ig-link-normal {
 
 .ig-hotness {
   --ig-hotness: 0;
-  background-color: color-mix(in oklab,
+
+  --ig-cold-color: color-mix(in srgb, var(--ig-cool-color) 20%, transparent);
+  background-color:
+    /* cool <-> hot */
+    color-mix(in oklab,
+      /* cold <-> cool */
       color-mix(in oklab,
-        color-mix(in srgb, var(--ig-cool-color) 0%, transparent),
+        /* dead or cold */
+        color-mix(in srgb, transparent, var(--ig-cold-color) calc(clamp(0, calc(var(--ig-hotness) * 1000000), 1) * 100%)),
         var(--ig-cool-color) clamp(0%, calc((var(--ig-hotness) / var(--ig-cool-threshold)) * 100%), 100%)),
       var(--ig-hot-color) clamp(0%, calc(((var(--ig-hotness) - var(--ig-cool-threshold)) / (1 - var(--ig-cool-threshold)) * 100%)), 100%));
 }

@@ -1,0 +1,30 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-size: 0.875rem;
+}
+
+body {
+  margin: 0;
+  background-color: #e5e8ea;
+}
+
+#container {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.tweaks-panel {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 1rem;
+  border: 1px solid black;
+  border-width: 1px 0 0 1px;
+  background-color: white;
+}

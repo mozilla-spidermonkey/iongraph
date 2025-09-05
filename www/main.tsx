@@ -62,8 +62,8 @@ function TestViewer() {
     blocks = passes[pass].mir.blocks;
   }
 
-  return <div className="ig-absolute ig-absolute-fill ig-pa3 ig-flex ig-flex-column ig-g3">
-    <div>
+  return <div className="ig-absolute ig-absolute-fill ig-flex ig-flex-column">
+    <div className="ig-bb ig-pv2 ig-ph3">
       <div><input type="file" onChange={fileSelected} /></div>
       {funcValid && passValid && <>
         <div>
@@ -91,7 +91,7 @@ function TestViewer() {
         <div>{ionjson.functions[func].name}</div>
       </>}
     </div>
-    {funcValid && passValid && <div className="ig-relative ig-ba ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
+    {funcValid && passValid && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
       <GraphViewer
         func={ionjson.functions[func]}
         pass={pass}

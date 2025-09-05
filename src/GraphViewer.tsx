@@ -128,7 +128,7 @@ export function GraphViewer({
   }, [func]);
 
   return <div className="ig-absolute ig-absolute-fill ig-flex">
-    <div className="ig-w5 ig-br ig-flex-shrink-0 ig-overflow-y-auto">
+    <div className="ig-w5 ig-br ig-flex-shrink-0 ig-overflow-y-auto ig-bg-white">
       {func.passes.map((pass, i) => <div key={i}>
         <a
           href="#"

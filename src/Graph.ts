@@ -1056,7 +1056,7 @@ export class Graph {
   private renderBlock(block: Block): HTMLElement {
     const el = document.createElement("div");
     this.graphContainer.appendChild(el);
-    el.classList.add("ig-block");
+    el.classList.add("ig-block", "ig-bg-white");
     for (const att of block.attributes) {
       el.classList.add(`ig-block-att-${att}`);
     }
@@ -1234,7 +1234,10 @@ export class Graph {
       .replace('<-', '←');
 
     const row = document.createElement("tr");
-    row.classList.add("ig-ins", "ig-can-flash", ...ins.attributes.map(att => `ig-ins-att-${att}`));
+    row.classList.add(
+      "ig-ins", "ig-can-flash", "ig-highlightable",
+      ...ins.attributes.map(att => `ig-ins-att-${att}`),
+    );
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
     const num = document.createElement("td");
@@ -1244,7 +1247,7 @@ export class Graph {
 
     const opcode = document.createElement("td");
     opcode.innerHTML = prettyOpcode.replace(/([A-Za-z0-9_]+)#(\d+)/g, (_, name, id) => {
-      return `<span class="ig-use" data-ig-use="${id}">${name}#${id}</span>`;
+      return `<span class="ig-use ig-highlightable" data-ig-use="${id}">${name}#${id}</span>`;
     });
     row.appendChild(opcode);
 
@@ -1284,7 +1287,7 @@ export class Graph {
     const sampleCount = this.sampleCounts?.selfLineHits.get(ins.id) ?? 0;
 
     const row = document.createElement("tr");
-    row.classList.add("ig-ins", "ig-hotness");
+    row.classList.add("ig-ins", "ig-hotness", "ig-highlightable");
     row.style.setProperty("--ig-hotness", `${sampleCount / this.maxSampleCount}`);
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
@@ -1332,15 +1335,15 @@ export class Graph {
 
     // Clear all existing highlight styles
     this.graphContainer.querySelectorAll<HTMLElement>(".ig-ins, .ig-use").forEach(ins => {
-      ins.style.removeProperty("background-color");
+      clearHighlight(ins);
     });
     for (const hi of this.highlightedInstructions) {
       const color = this.instructionPalette[hi.paletteColor % this.instructionPalette.length];
       const row = must(this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${hi.id}"]`));
-      row.style.backgroundColor = color;
+      highlight(row, color);
 
       this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${hi.id}"]`).forEach(use => {
-        use.style.backgroundColor = color;
+        highlight(use, color);
       });
     }
   }
@@ -1689,13 +1692,6 @@ export class Graph {
   }
 }
 
-function migrateBlock(block: Block) {
-  // TODO: Remove on 1.0
-  if (block.id === undefined) {
-    block.id = block.number as any as BlockID;
-  }
-}
-
 function pruneNode(node: LayoutNode) {
   for (const dst of node.dstNodes) {
     const indexOfSelfInDst = dst.srcNodes.indexOf(node);
@@ -1929,4 +1925,12 @@ function arrowhead(x: number, y: number, rot: number, size = 5): SVGElement {
   p.setAttribute("d", `M 0 0 L ${-size} ${size * 1.5} L ${size} ${size * 1.5} Z`);
   p.setAttribute("transform", `translate(${x}, ${y}) rotate(${rot})`);
   return p;
+}
+
+function highlight(el: { style: CSSStyleDeclaration }, color: string) {
+  el.style.setProperty("--ig-highlight-color", color);
+}
+
+function clearHighlight(el: { style: CSSStyleDeclaration }) {
+  el.style.setProperty("--ig-highlight-color", "transparent");
 }
