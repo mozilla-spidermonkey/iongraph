@@ -163,6 +163,8 @@ export class Graph {
   blocksInOrder: Block[];
   blocksByID: Map<BlockID, Block>;
   blocksByPtr: Map<BlockPtr, Block>;
+  insPtrsByID: Map<InsID, InsPtr>;
+  insIDsByPtr: Map<InsPtr, InsID>;
   loops: LoopHeader[];
 
   sampleCounts: SampleCounts | undefined;
@@ -217,6 +219,8 @@ export class Graph {
     this.blocksInOrder = [...blocks].sort((a, b) => a.id - b.id);
     this.blocksByID = new Map();
     this.blocksByPtr = new Map();
+    this.insPtrsByID = new Map();
+    this.insIDsByPtr = new Map();
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
     this.sampleCounts = options.sampleCounts;
@@ -263,8 +267,21 @@ export class Graph {
     for (const block of blocks) {
       this.blocksByID.set(block.id, block);
       this.blocksByPtr.set(block.ptr, block);
+      for (const ins of block.instructions) {
+        this.insPtrsByID.set(ins.id, ins.ptr);
+        this.insIDsByPtr.set(ins.ptr, ins.id);
+      }
 
       block.lir = lirBlocks.get(block.id) ?? null;
+      if (block.lir) {
+        for (const ins of block.lir.instructions) {
+          // TODO: This is kind of jank because it will overwrite MIR
+          // instructions that were also there. But we never render those, so
+          // it's basically moot.
+          this.insPtrsByID.set(ins.id, ins.ptr);
+          this.insIDsByPtr.set(ins.ptr, ins.id);
+        }
+      }
 
       const el = this.renderBlock(block);
       block.el = el;
@@ -1404,16 +1421,19 @@ export class Graph {
     this.graphContainer.querySelectorAll<HTMLElement>(".ig-ins, .ig-use").forEach(ins => {
       clearHighlight(ins);
     });
+
+    // Highlight all instructions
     for (const hi of this.highlightedInstructions) {
       const color = this.instructionPalette[hi.paletteColor % this.instructionPalette.length];
       const row = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-ptr="${hi.ptr}"]`);
       if (row) {
         highlight(row, color);
-      }
 
-      this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${hi.ptr}"]`).forEach(use => {
-        highlight(use, color);
-      });
+        const id = must(this.insIDsByPtr.get(hi.ptr));
+        this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${id}"]`).forEach(use => {
+          highlight(use, color);
+        });
+      }
     }
   }
 
