@@ -4,6 +4,7 @@ import { classes } from "./classes.js";
 import { Graph } from "./Graph.js";
 import type { BlockID, Func, Pass, SampleCounts } from "./iongraph.js";
 import { must } from "./utils.js";
+import { dequal } from "./dequal.js";
 
 export interface GraphViewerProps {
   func: Func,
@@ -25,35 +26,56 @@ export function GraphViewer({
 
   const [passNumber, setPassNumber] = useState(propsPass);
   const [keyPasses, setKeyPasses] = useState<KeyPasses>([null, null, null, null]);
+  const [redundantPasses, setRedundantPasses] = useState<number[]>([]);
 
   // Update current pass if the parent passes one in.
   useEffect(() => {
     setPassNumber(propsPass);
   }, [propsPass]);
 
+  // Update extra info about passes
   useEffect(() => {
-    const newKeyPasses: KeyPasses = [null, null, null, null];
-    let lastPass: Pass | null = null;
-    for (const [i, pass] of func.passes.entries()) {
-      if (pass.mir.blocks.length > 0) {
-        if (newKeyPasses[0] === null) {
-          newKeyPasses[0] = i;
+    {
+      const newKeyPasses: KeyPasses = [null, null, null, null];
+      let lastPass: Pass | null = null;
+      for (const [i, pass] of func.passes.entries()) {
+        if (pass.mir.blocks.length > 0) {
+          if (newKeyPasses[0] === null) {
+            newKeyPasses[0] = i;
+          }
+          if (pass.lir.blocks.length === 0) {
+            newKeyPasses[1] = i;
+          }
         }
-        if (pass.lir.blocks.length === 0) {
-          newKeyPasses[1] = i;
+        if (pass.lir.blocks.length > 0) {
+          if (lastPass?.lir.blocks.length === 0) {
+            newKeyPasses[2] = i;
+          }
+          newKeyPasses[3] = i;
         }
-      }
-      if (pass.lir.blocks.length > 0) {
-        if (lastPass?.lir.blocks.length === 0) {
-          newKeyPasses[2] = i;
-        }
-        newKeyPasses[3] = i;
-      }
 
-      lastPass = pass;
+        lastPass = pass;
+      }
+      setKeyPasses(newKeyPasses);
     }
 
-    setKeyPasses(newKeyPasses);
+    {
+      const newRedundantPasses: number[] = [];
+      let lastPass: Pass | null = null;
+      for (const [i, pass] of func.passes.entries()) {
+        if (lastPass === null) {
+          lastPass = pass;
+          continue;
+        }
+
+        if (dequal(lastPass.mir, pass.mir) && dequal(lastPass.lir, pass.lir)) {
+          newRedundantPasses.push(i);
+        }
+
+        lastPass = pass;
+      }
+      setRedundantPasses(newRedundantPasses);
+    }
   }, [func]);
 
   function redrawGraph(pass: Pass | undefined) {
@@ -136,10 +158,26 @@ export function GraphViewer({
         } break;
 
         case "f": {
-          setPassNumber(pn => Math.min(pn + 1, func.passes.length - 1));
+          setPassNumber(pn => {
+            for (let i = pn + 1; i < func.passes.length; i++) {
+              if (redundantPasses.includes(i)) {
+                continue;
+              }
+              return i;
+            }
+            return pn;
+          });
         } break;
         case "r": {
-          setPassNumber(pn => Math.max(pn - 1, 0));
+          setPassNumber(pn => {
+            for (let i = pn - 1; i >= 0; i--) {
+              if (redundantPasses.includes(i)) {
+                continue;
+              }
+              return i;
+            }
+            return pn;
+          });
         } break;
         case "1":
         case "2":
@@ -165,7 +203,7 @@ export function GraphViewer({
     return () => {
       window.removeEventListener("keydown", handler);
     }
-  }, [func, keyPasses]);
+  }, [func, keyPasses, redundantPasses]);
 
   return <div className="ig-absolute ig-absolute-fill ig-flex">
     <div className="ig-w5 ig-br ig-flex-shrink-0 ig-overflow-y-auto ig-bg-white">
@@ -187,7 +225,11 @@ export function GraphViewer({
           >
             {i}
           </div>
-          <div>{pass.name}</div>
+          <div className={classes({
+            "ig-text-dim": redundantPasses.includes(i),
+          })}>
+            {pass.name}
+          </div>
         </a>
       </div>)}
     </div>
