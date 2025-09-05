@@ -100,6 +100,9 @@ const LEFTMOST_DUMMY: NodeFlags = 1 << 0;
 const RIGHTMOST_DUMMY: NodeFlags = 1 << 1;
 const IMMINENT_BACKEDGE_DUMMY: NodeFlags = 1 << 2;
 
+export const SC_TOTAL = 0;
+export const SC_SELF = 1;
+
 const log = new Proxy(console, {
   get(target, prop: keyof Console) {
     const field = target[prop];
@@ -134,6 +137,11 @@ export interface GraphOptions {
   sampleCounts?: SampleCounts,
 
   /**
+   * The heatmap mode to use (one of SC_TOTAL or SC_SELF).
+   */
+  heatmapMode?: number,
+
+  /**
    * An array of CSS colors to use for highlighting instructions. You are
    * encouraged to use CSS variables here.
    */
@@ -157,8 +165,10 @@ export class Graph {
   blocksByNum: Map<BlockNumber, Block>;
   blocksByID: Map<BlockID, Block>;
   loops: LoopHeader[];
+
   sampleCounts: SampleCounts | undefined;
-  maxSampleCount: number;
+  maxSampleCounts: [number, number]; // [total, self]
+  heatmapMode: number; // SC_TOTAL or SC_SELF
 
   //
   // Post-layout info
@@ -209,11 +219,16 @@ export class Graph {
     this.blocksByNum = new Map();
     this.blocksByID = new Map();
     this.loops = []; // top-level loops; this basically forms the root of the loop tree
-    this.sampleCounts = options.sampleCounts;
-    this.maxSampleCount = 0;
 
+    this.sampleCounts = options.sampleCounts;
+    this.maxSampleCounts = [0, 0];
+    this.heatmapMode = options.heatmapMode ?? SC_TOTAL;
+
+    for (const [ins, count] of this.sampleCounts?.totalLineHits ?? []) {
+      this.maxSampleCounts[SC_TOTAL] = Math.max(this.maxSampleCounts[SC_TOTAL], count);
+    }
     for (const [ins, count] of this.sampleCounts?.selfLineHits ?? []) {
-      this.maxSampleCount = Math.max(this.maxSampleCount, count);
+      this.maxSampleCounts[SC_SELF] = Math.max(this.maxSampleCounts[SC_SELF], count);
     }
 
     this.size = { x: 0, y: 0 };
@@ -1084,8 +1099,21 @@ export class Graph {
       <colgroup>
         <col style="width: 1px">
         <col style="width: auto">
-        ${this.sampleCounts ? `<col style="width: 1px">` : ""}
+        ${this.sampleCounts ? `
+          <col style="width: 1px">
+          <col style="width: 1px">
+        ` : ""}
       </colgroup>
+      ${this.sampleCounts ? `
+        <thead>
+          <tr>
+            <th></th>
+            <th></th>
+            <th class="ig-f6">Total</th>
+            <th class="ig-f6">Self</th>
+          </tr>
+        </thead>
+      ` : ""}
     `;
     if (block.lir) {
       for (const ins of block.lir.instructions) {
@@ -1226,6 +1254,10 @@ export class Graph {
         }
       }
     }
+
+    // Final rendering of other effects
+    this.updateHighlightedInstructions();
+    this.updateHotness();
   }
 
   private renderMIRInstruction(ins: MIRInstruction): HTMLElement {
@@ -1235,7 +1267,7 @@ export class Graph {
 
     const row = document.createElement("tr");
     row.classList.add(
-      "ig-ins", "ig-can-flash", "ig-highlightable",
+      "ig-ins", "ig-ins-mir", "ig-can-flash", "ig-highlightable",
       ...ins.attributes.map(att => `ig-ins-att-${att}`),
     );
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
@@ -1284,11 +1316,8 @@ export class Graph {
       .replace('->', '→')
       .replace('<-', '←');
 
-    const sampleCount = this.sampleCounts?.selfLineHits.get(ins.id) ?? 0;
-
     const row = document.createElement("tr");
-    row.classList.add("ig-ins", "ig-hotness", "ig-highlightable");
-    row.style.setProperty("--ig-hotness", `${sampleCount / this.maxSampleCount}`);
+    row.classList.add("ig-ins", "ig-ins-lir", "ig-hotness", "ig-highlightable");
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
     const num = document.createElement("td");
@@ -1301,11 +1330,35 @@ export class Graph {
     row.appendChild(opcode);
 
     if (this.sampleCounts) {
-      const samples = document.createElement("td");
-      samples.classList.add("ig-ins-samples");
-      samples.classList.toggle("ig-text-dim", sampleCount === 0);
-      samples.innerText = `${sampleCount}`;
-      row.appendChild(samples);
+      const totalSampleCount = this.sampleCounts?.totalLineHits.get(ins.id) ?? 0;
+      const selfSampleCount = this.sampleCounts?.selfLineHits.get(ins.id) ?? 0;
+
+      const totalSamples = document.createElement("td");
+      totalSamples.classList.add("ig-ins-samples");
+      totalSamples.classList.toggle("ig-text-dim", totalSampleCount === 0);
+      totalSamples.innerText = `${totalSampleCount}`;
+      totalSamples.title = "Color by total count";
+      row.appendChild(totalSamples);
+
+      const selfSamples = document.createElement("td");
+      selfSamples.classList.add("ig-ins-samples");
+      selfSamples.classList.toggle("ig-text-dim", selfSampleCount === 0);
+      selfSamples.innerText = `${selfSampleCount}`;
+      selfSamples.title = "Color by self count";
+      row.appendChild(selfSamples);
+
+      // Event listeners
+      for (const [i, el] of [totalSamples, selfSamples].entries()) {
+        el.addEventListener("pointerdown", e => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        el.addEventListener("click", () => {
+          assert(i === SC_TOTAL || i === SC_SELF);
+          this.heatmapMode = i;
+          this.updateHotness();
+        });
+      }
     }
 
     // Event listeners
@@ -1328,7 +1381,7 @@ export class Graph {
     });
   }
 
-  private renderHighlightedInstructions() {
+  private updateHighlightedInstructions() {
     for (const hi of this.highlightedInstructions) {
       assert(this.highlightedInstructions.filter(other => other.id === hi.id).length === 1, `instruction ${hi.id} was highlighted more than once`);
     }
@@ -1346,6 +1399,19 @@ export class Graph {
         highlight(use, color);
       });
     }
+  }
+
+  private updateHotness() {
+    this.graphContainer.querySelectorAll<HTMLElement>(".ig-ins-lir").forEach(insEl => {
+      assert(insEl.classList.contains("ig-hotness"));
+      const insID = parseInt(must(insEl.getAttribute("data-ig-ins-id")), 10);
+      let hotness = 0;
+      if (this.sampleCounts) {
+        const counts = this.heatmapMode === SC_TOTAL ? this.sampleCounts.totalLineHits : this.sampleCounts.selfLineHits;
+        hotness = (counts.get(insID) ?? 0) / this.maxSampleCounts[this.heatmapMode];
+      }
+      insEl.style.setProperty("--ig-hotness", `${hotness}`);
+    });
   }
 
   private addEventListeners() {
@@ -1569,7 +1635,7 @@ export class Graph {
       }
     }
 
-    this.renderHighlightedInstructions();
+    this.updateHighlightedInstructions();
   }
 
   private clampTranslation(t: Vec2, scale: number): Vec2 {

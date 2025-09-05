@@ -350,9 +350,14 @@ a.ig-link-normal {
       border-collapse: collapse;
     }
 
-    td {
+    td,
+    th {
       white-space: nowrap;
       padding: 0.1rem 0.5rem;
+    }
+
+    th {
+      font-weight: normal;
     }
   }
 
@@ -395,6 +400,7 @@ a.ig-link-normal {
 .ig-ins-samples {
   font-size: 0.875rem;
   text-align: right;
+  cursor: pointer;
 }
 
 .ig-use {

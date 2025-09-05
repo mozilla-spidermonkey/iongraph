@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { classes } from "./classes.js";
-import { Graph } from "./Graph.js";
+import { Graph, SC_TOTAL } from "./Graph.js";
 import type { BlockID, Func, Pass, SampleCounts } from "./iongraph.js";
 import { must } from "./utils.js";
 import { dequal } from "./dequal.js";
@@ -82,6 +82,7 @@ export function GraphViewer({
     if (viewport.current) {
       const currentTranslation = graph.current?.translation ?? { x: 0, y: 0 };
       const currentZoom = graph.current?.zoom ?? 1;
+      const currentHeatmapMode = graph.current?.heatmapMode ?? SC_TOTAL;
 
       const selected = graph.current?.selectedBlockIDs ?? new Set();
       const lastSelected = graph.current?.lastSelectedBlockID;
@@ -99,6 +100,7 @@ export function GraphViewer({
         try {
           graph.current = new Graph(viewport.current, pass, {
             sampleCounts,
+            heatmapMode: currentHeatmapMode,
           });
           graph.current.setSelection([...selected], lastSelected);
           if (lastSelected !== undefined) {
@@ -140,7 +142,7 @@ export function GraphViewer({
     return () => {
       window.removeEventListener("tweak", handler);
     };
-  }, [func, passNumber]);
+  }, [func, passNumber, sampleCounts]);
 
   // Hook up keyboard shortcuts
   useEffect(() => {
