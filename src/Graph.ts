@@ -211,6 +211,7 @@ export class Graph {
     };
 
     this.graphContainer = document.createElement("div");
+    this.graphContainer.classList.add("ig-graph");
     this.graphContainer.style.transformOrigin = "top left";
     this.viewport.appendChild(this.graphContainer);
 
@@ -1102,7 +1103,8 @@ export class Graph {
     } else if (block.attributes.includes("splitedge")) {
       desc = " (split edge)";
     }
-    const header = document.createElement("h2");
+    const header = document.createElement("div");
+    header.classList.add("ig-block-header");
     header.innerText = `Block ${block.id}${desc}`;
     el.appendChild(header);
 

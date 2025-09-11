@@ -8,7 +8,11 @@
   },
   "license": "MIT",
   "type": "module",
-  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./react": "./dist/index-react.js",
+    "./style.css": "./dist/style.css"
+  },
   "files": [
     "dist"
   ],

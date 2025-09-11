@@ -254,31 +254,31 @@ a.ig-link-normal {
 }
 
 .ig-f1 {
-  font-size: 3rem
+  font-size: 3rem;
 }
 
 .ig-f2 {
-  font-size: 2.25rem
+  font-size: 2.25rem;
 }
 
 .ig-f3 {
-  font-size: 1.5rem
+  font-size: 1.5rem;
 }
 
 .ig-f4 {
-  font-size: 1.25rem
+  font-size: 1.25rem;
 }
 
 .ig-f5 {
-  font-size: 1rem
+  font-size: 1rem;
 }
 
 .ig-f6 {
-  font-size: .875rem
+  font-size: .875rem;
 }
 
 .ig-f7 {
-  font-size: .75rem
+  font-size: .75rem;
 }
 
 .ig-text-normal {
@@ -327,22 +327,29 @@ a.ig-link-normal {
 
 /* Non-utility styles */
 
+.ig-graph {
+  color: var(--ig-text-color);
+  position: absolute;
+  left: 0;
+  top: 0;
+  isolation: isolate;
+}
+
 .ig-block {
   position: absolute;
 
-  h2 {
-    font-size: inherit;
+  .ig-block-header {
+    font-weight: bold;
     text-align: center;
-    margin: 0;
     background-color: var(--ig-block-header-color);
     color: white;
-    padding: 0 1rem;
+    padding: 0 1em;
     border: 1px solid var(--ig-border-color);
     border-width: 1px 1px 0;
   }
 
   .ig-instructions {
-    padding: 0.5rem;
+    padding: 0.5em;
     border: 1px solid var(--ig-border-color);
     border-width: 0 1px 1px;
 
@@ -353,7 +360,7 @@ a.ig-link-normal {
     td,
     th {
       white-space: nowrap;
-      padding: 0.1rem 0.5rem;
+      padding: 0.1em 0.5em;
     }
 
     th {
@@ -371,7 +378,7 @@ a.ig-link-normal {
 }
 
 .ig-block-att-loopheader {
-  h2 {
+  .ig-block-header {
     background-color: var(--ig-loop-header-color);
   }
 }
@@ -393,21 +400,22 @@ a.ig-link-normal {
 }
 
 .ig-ins-samples {
-  font-size: 0.875rem;
+  font-size: 0.875em;
   text-align: right;
   cursor: pointer;
 }
 
 .ig-use {
-  padding: 0 0.25rem;
+  padding: 0 0.25em;
   border-radius: 2px;
   cursor: pointer;
 }
 
 .ig-edge-label {
   position: absolute;
-  bottom: -1rem;
-  font-size: 0.8rem;
+  font-size: 0.8em;
+  line-height: 1;
+  bottom: -1em;
   padding-left: 4px;
 }
 
