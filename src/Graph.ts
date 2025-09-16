@@ -24,7 +24,7 @@ const MAX_ZOOM = 1;
 const MIN_ZOOM = 0.10;
 const TRANSLATION_CLAMP_AMOUNT = 40;
 
-interface Vec2 {
+export interface Vec2 {
   x: number,
   y: number,
 }
@@ -130,15 +130,26 @@ export interface HighlightedInstruction {
   paletteColor: number,
 }
 
+export interface GraphState {
+  translation: Graph["translation"],
+  zoom: Graph["zoom"],
+  heatmapMode: Graph["heatmapMode"],
+  highlightedInstructions: Graph["highlightedInstructions"],
+  selectedBlockPtrs: Graph["selectedBlockPtrs"],
+  lastSelectedBlockPtr: Graph["lastSelectedBlockPtr"],
+
+  viewportPosOfSelectedBlock: Vec2 | undefined,
+}
+
+export interface RestoreStateOpts {
+  preserveSelectedBlockPosition?: boolean,
+}
+
 export interface GraphOptions {
   /**
    * Sample counts to display when viewing the LIR graph.
    */
   sampleCounts?: SampleCounts,
-
-  // Data to restore from previous graphs.
-  heatmapMode?: number,
-  highlightedInstructions?: HighlightedInstruction[],
 
   /**
    * An array of CSS colors to use for highlighting instructions. You are
@@ -194,7 +205,7 @@ export class Graph {
   // Block and instruction selection / navigation
   //
   selectedBlockPtrs: Set<BlockPtr>;
-  lastSelectedBlockPtr: BlockPtr | undefined;
+  lastSelectedBlockPtr: BlockPtr; // 0 is treated as a null value
   nav: GraphNavigation;
 
   highlightedInstructions: HighlightedInstruction[];
@@ -226,7 +237,7 @@ export class Graph {
 
     this.sampleCounts = options.sampleCounts;
     this.maxSampleCounts = [0, 0];
-    this.heatmapMode = options.heatmapMode ?? SC_TOTAL;
+    this.heatmapMode = SC_TOTAL;
 
     for (const [ins, count] of this.sampleCounts?.totalLineHits ?? []) {
       this.maxSampleCounts[SC_TOTAL] = Math.max(this.maxSampleCounts[SC_TOTAL], count);
@@ -249,14 +260,14 @@ export class Graph {
     this.lastMousePos = { x: 0, y: 0 };
 
     this.selectedBlockPtrs = new Set();
-    this.lastSelectedBlockPtr = undefined;
+    this.lastSelectedBlockPtr = 0 as BlockPtr;
     this.nav = {
       visited: [],
       currentIndex: -1,
       siblings: [],
     };
 
-    this.highlightedInstructions = options.highlightedInstructions ?? [];
+    this.highlightedInstructions = [];
     this.instructionPalette = options.instructionPalette ?? [0, 1, 2, 3, 4].map(n => `var(--ig-highlight-${n})`);
 
     const lirBlocks = new Map<BlockID, LIRBlock>();
@@ -266,6 +277,8 @@ export class Graph {
 
     // Initialize blocks
     for (const block of blocks) {
+      assert(block.ptr, "blocks must always have non-null ptrs");
+
       this.blocksByID.set(block.id, block);
       this.blocksByPtr.set(block.ptr, block);
       for (const ins of block.instructions) {
@@ -1330,7 +1343,7 @@ export class Graph {
       });
       use.addEventListener("click", e => {
         const id = parseInt(must(use.getAttribute("data-ig-use")), 10) as InsID;
-        this.jumpToInstruction(id, 1);
+        this.jumpToInstruction(id, { zoom: 1 });
       });
     });
 
@@ -1541,9 +1554,9 @@ export class Graph {
     ro.observe(this.viewport);
   }
 
-  setSelection(blockPtrs: BlockPtr[], lastSelectedPtr?: BlockPtr) {
+  setSelection(blockPtrs: BlockPtr[], lastSelectedPtr: BlockPtr = 0 as BlockPtr) {
     this.setSelectionRaw(blockPtrs, lastSelectedPtr);
-    if (lastSelectedPtr === undefined) {
+    if (!lastSelectedPtr) {
       this.nav = {
         visited: [],
         currentIndex: -1,
@@ -1558,14 +1571,14 @@ export class Graph {
     }
   }
 
-  private setSelectionRaw(blockPtrs: BlockPtr[], lastSelectedPtr: BlockPtr | undefined) {
+  private setSelectionRaw(blockPtrs: BlockPtr[], lastSelectedPtr: BlockPtr) {
     this.selectedBlockPtrs.clear();
-    for (const blockPtr of [...blockPtrs, lastSelectedPtr ?? -1 as BlockPtr]) {
+    for (const blockPtr of [...blockPtrs, lastSelectedPtr]) {
       if (this.blocksByPtr.has(blockPtr)) {
         this.selectedBlockPtrs.add(blockPtr);
       }
     }
-    this.lastSelectedBlockPtr = this.blocksByPtr.has(lastSelectedPtr ?? -1 as BlockPtr) ? lastSelectedPtr : undefined;
+    this.lastSelectedBlockPtr = this.blocksByPtr.has(lastSelectedPtr) ? lastSelectedPtr : 0 as BlockPtr;
     this.renderSelection();
   }
 
@@ -1574,7 +1587,7 @@ export class Graph {
 
     if (dir === "down" || dir === "up") {
       // Vertical navigation
-      if (selected === undefined) {
+      if (!selected) {
         const blocks = this.blocksInOrder;
         // No block selected; start navigation anew
         const rootBlocks = blocks.filter(b => b.predecessors.length === 0);
@@ -1641,7 +1654,7 @@ export class Graph {
     }
 
     assert(this.nav.visited.length === 0 || this.nav.siblings.includes(this.nav.visited[this.nav.currentIndex]), "expected currently visited node to be in the siblings array");
-    assert(this.lastSelectedBlockPtr === undefined || this.nav.siblings.includes(this.lastSelectedBlockPtr), "expected currently selected block to be in siblings array");
+    assert(this.lastSelectedBlockPtr === 0 || this.nav.siblings.includes(this.lastSelectedBlockPtr), "expected currently selected block to be in siblings array");
   }
 
   toggleInstructionHighlight(insPtr: InsPtr, force?: boolean) {
@@ -1698,23 +1711,51 @@ export class Graph {
     this.graphContainer.style.transform = `translate(${clampedT.x}px, ${clampedT.y}px) scale(${this.zoom})`;
   }
 
-  // Pans and zooms the graph such that the given x and y are in the top left
-  // of the viewport at the requested zoom level.
-  async goToCoordinates(pos: Vec2, zm: number, animate = true) {
-    const newTranslation = { x: -pos.x * zm, y: -pos.y * zm };
+  /**
+   * Converts from graph space to viewport space.
+   */
+  graph2viewport(v: Vec2, translation: Vec2 = this.translation, zoom: number = this.zoom): Vec2 {
+    return {
+      x: v.x * zoom + translation.x,
+      y: v.y * zoom + translation.y,
+    };
+  }
+
+  /**
+   * Converts from viewport space to graph space.
+   */
+  viewport2graph(v: Vec2, translation: Vec2 = this.translation, zoom: number = this.zoom): Vec2 {
+    return {
+      x: (v.x - translation.x) / zoom,
+      y: (v.y - translation.y) / zoom,
+    };
+  }
+
+  /**
+   * Pans and zooms the graph such that the given x and y in graph space are in
+   * the top left of the viewport.
+   */
+  async goToGraphCoordinates(
+    coords: Vec2,
+    { zoom = this.zoom, animate = true }: {
+      zoom?: number,
+      animate?: boolean
+    },
+  ) {
+    const newTranslation = { x: -coords.x * zoom, y: -coords.y * zoom };
 
     if (!animate) {
       this.animating = false;
       this.translation.x = newTranslation.x;
       this.translation.y = newTranslation.y;
-      this.zoom = zm;
+      this.zoom = zoom;
       this.updatePanAndZoom();
       await new Promise(res => setTimeout(res, 0));
       return;
     }
 
     this.targetTranslation = newTranslation;
-    this.targetZoom = zm;
+    this.targetZoom = zoom;
     if (this.animating) {
       // Do not start another animation loop.
       //
@@ -1759,17 +1800,38 @@ export class Graph {
     await new Promise(res => setTimeout(res, 0));
   }
 
-  jumpToBlock(blockPtr: BlockPtr, zoom = this.zoom, animate = true) {
-    const selected = this.blocksByPtr.get(blockPtr);
-    if (!selected) {
-      return;
+  jumpToBlock(
+    blockPtr: BlockPtr,
+    { zoom = this.zoom, animate = true, viewportPos }: {
+      zoom?: number,
+      animate?: boolean,
+      viewportPos?: Vec2,
+    } = {},
+  ) {
+    const block = this.blocksByPtr.get(blockPtr);
+    if (!block) {
+      return Promise.resolve();
     }
 
-    const coords = this.coordsToCenterRect(selected.layoutNode.pos, selected.layoutNode.size, zoom);
-    this.goToCoordinates(coords, zoom, animate);
+    let graphCoords: Vec2;
+    if (viewportPos) {
+      graphCoords = {
+        x: block.layoutNode.pos.x - viewportPos.x / zoom,
+        y: block.layoutNode.pos.y - viewportPos.y / zoom,
+      };
+    } else {
+      graphCoords = this.graphPosToCenterRect(block.layoutNode.pos, block.layoutNode.size, zoom);
+    }
+    return this.goToGraphCoordinates(graphCoords, { zoom, animate });
   }
 
-  async jumpToInstruction(insID: InsID, zoom = this.zoom, animate = true) {
+  async jumpToInstruction(
+    insID: InsID,
+    { zoom = this.zoom, animate = true }: {
+      zoom?: number,
+      animate?: boolean,
+    },
+  ) {
     // Since we don't have graph-layout coordinates for instructions, we have
     // to reverse engineer them from their client position.
     const insEl = this.graphContainer.querySelector<HTMLElement>(`.ig-ins[data-ig-ins-id="${insID}"]`);
@@ -1785,13 +1847,17 @@ export class Graph {
     const width = insRect.width / this.zoom;
     const height = insRect.height / this.zoom;
 
-    const coords = this.coordsToCenterRect({ x, y }, { x: width, y: height }, zoom);
+    const coords = this.graphPosToCenterRect({ x, y }, { x: width, y: height }, zoom);
     insEl.classList.add("ig-flash");
-    await this.goToCoordinates(coords, zoom, animate);
+    await this.goToGraphCoordinates(coords, { zoom, animate });
     insEl.classList.remove("ig-flash");
   }
 
-  coordsToCenterRect(pos: Vec2, size: Vec2, zoom: number): Vec2 {
+  /**
+   * Returns the position in graph space that, if panned to, will center the
+   * given graph-space rectangle in the viewport.
+   */
+  graphPosToCenterRect(pos: Vec2, size: Vec2, zoom: number): Vec2 {
     const viewportWidth = this.viewportSize.x / zoom;
     const viewportHeight = this.viewportSize.y / zoom;
     const xPadding = Math.max(20 / zoom, (viewportWidth - size.x) / 2);
@@ -1799,6 +1865,48 @@ export class Graph {
     const x = pos.x - xPadding;
     const y = pos.y - yPadding;
     return { x, y };
+  }
+
+  exportState(): GraphState {
+    const state: GraphState = {
+      translation: this.translation,
+      zoom: this.zoom,
+      heatmapMode: this.heatmapMode,
+      highlightedInstructions: this.highlightedInstructions,
+      selectedBlockPtrs: this.selectedBlockPtrs,
+      lastSelectedBlockPtr: this.lastSelectedBlockPtr,
+
+      viewportPosOfSelectedBlock: undefined,
+    };
+
+    if (this.lastSelectedBlockPtr) {
+      state.viewportPosOfSelectedBlock = this.graph2viewport(must(this.blocksByPtr.get(this.lastSelectedBlockPtr)).layoutNode.pos);
+    }
+
+    return state;
+  }
+
+  restoreState(state: GraphState, opts: RestoreStateOpts) {
+    this.translation.x = state.translation.x;
+    this.translation.y = state.translation.y;
+    this.zoom = state.zoom;
+    this.heatmapMode = state.heatmapMode;
+    this.highlightedInstructions = state.highlightedInstructions;
+    this.setSelection(Array.from(state.selectedBlockPtrs), state.lastSelectedBlockPtr);
+
+    this.updatePanAndZoom();
+    this.updateHotness();
+    this.updateHighlightedInstructions();
+
+    if (opts.preserveSelectedBlockPosition) {
+      // If there was no last selected block, or if the last selected block no
+      // longer exists, jumpToBlock will do nothing. This is fine.
+      this.jumpToBlock(this.lastSelectedBlockPtr, {
+        zoom: this.zoom,
+        animate: false,
+        viewportPos: state.viewportPosOfSelectedBlock,
+      });
+    }
   }
 }
 

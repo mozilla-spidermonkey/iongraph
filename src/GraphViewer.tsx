@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { classes } from "./classes.js";
-import { Graph, SC_TOTAL } from "./Graph.js";
+import { Graph, SC_TOTAL, Vec2 } from "./Graph.js";
 import type { BlockPtr, Func, Pass, SampleCounts } from "./iongraph.js";
 import { must } from "./utils.js";
 import { dequal } from "./dequal.js";
@@ -80,48 +80,16 @@ export function GraphViewer({
 
   function redrawGraph(pass: Pass | undefined) {
     if (viewport.current) {
-      const currentTranslation = graph.current?.translation ?? { x: 0, y: 0 };
-      const currentZoom = graph.current?.zoom ?? 1;
-      const currentHeatmapMode = graph.current?.heatmapMode;
-      const currentHighlightedInstructions = graph.current?.highlightedInstructions;
-
-      const selected = graph.current?.selectedBlockPtrs ?? new Set();
-      const lastSelected = graph.current?.lastSelectedBlockPtr;
-      let offsetX = 0, offsetY = 0;
-      if (lastSelected !== undefined) {
-        const block = must(must(graph.current).blocksByPtr.get(lastSelected));
-        offsetX = block.layoutNode.pos.x - (-graph.current!.translation.x / graph.current!.zoom);
-        offsetY = block.layoutNode.pos.y - (-graph.current!.translation.y / graph.current!.zoom);
-      }
+      const previousState = graph.current?.exportState();
 
       viewport.current.innerHTML = "";
       graph.current = null;
 
       if (pass) {
         try {
-          graph.current = new Graph(viewport.current, pass, {
-            sampleCounts,
-            heatmapMode: currentHeatmapMode,
-            highlightedInstructions: currentHighlightedInstructions,
-          });
-          graph.current.setSelection([...selected], lastSelected);
-          if (lastSelected !== undefined) {
-            const newSelectedBlock = graph.current.blocksByPtr.get(lastSelected);
-            if (newSelectedBlock) { // The desired selected block still exists
-              graph.current.goToCoordinates(
-                {
-                  x: newSelectedBlock.layoutNode.pos.x - offsetX,
-                  y: newSelectedBlock.layoutNode.pos.y - offsetY,
-                },
-                currentZoom,
-                false, // animate
-              );
-            }
-          } else {
-            graph.current.translation.x = currentTranslation.x;
-            graph.current.translation.y = currentTranslation.y;
-            graph.current.zoom = currentZoom;
-            graph.current.updatePanAndZoom();
+          graph.current = new Graph(viewport.current, pass, { sampleCounts });
+          if (previousState) {
+            graph.current.restoreState(previousState, { preserveSelectedBlockPosition: true });
           }
         } catch (e) {
           viewport.current.innerHTML = "An error occurred while laying out the graph. See console.";
@@ -153,12 +121,12 @@ export function GraphViewer({
         case "w":
         case "s": {
           graph.current?.navigate(e.key === "s" ? "down" : "up");
-          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockPtr ?? -1 as BlockPtr);
+          graph.current?.jumpToBlock(graph.current.lastSelectedBlockPtr);
         } break;
         case "a":
         case "d": {
           graph.current?.navigate(e.key === "d" ? "right" : "left");
-          graph.current?.jumpToBlock(graph.current?.lastSelectedBlockPtr ?? -1 as BlockPtr);
+          graph.current?.jumpToBlock(graph.current.lastSelectedBlockPtr);
         } break;
 
         case "f": {
@@ -197,7 +165,7 @@ export function GraphViewer({
         case "c": {
           const selected = graph.current?.blocksByPtr.get(graph.current?.lastSelectedBlockPtr ?? -1 as BlockPtr);
           if (selected && viewport.current) {
-            graph.current?.jumpToBlock(selected.ptr, 1);
+            graph.current?.jumpToBlock(selected.ptr, { zoom: 1 });
           }
         } break;
       }
