@@ -1261,6 +1261,7 @@ export class Graph {
             } else {
               // Draw arrow to backedge dummy
               const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
+              maxY = Math.max(maxY, ym + ARROW_RADIUS + CONTENT_PADDING);
               const arrow = arrowFromBlockToBackedgeDummy(x1, y1, x2, y2, ym);
               svg.appendChild(arrow);
             }
@@ -1268,12 +1269,16 @@ export class Graph {
             const x2 = dst.pos.x + PORT_START;
             const y2 = dst.pos.y;
             const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
+            maxY = Math.max(maxY, ym + ARROW_RADIUS + CONTENT_PADDING);
             const arrow = downwardArrow(x1, y1, x2, y2, ym, dst.block !== null);
             svg.appendChild(arrow);
           }
         }
       }
     }
+
+    svg.setAttribute("height", `${maxY}`);
+    this.size = { x: maxX, y: maxY };
 
     // Render debug nodes
     if (+DEBUG) {
