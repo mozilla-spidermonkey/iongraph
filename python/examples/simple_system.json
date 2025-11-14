@@ -1,0 +1,15 @@
+{
+  "title": "Simple Data Processing System",
+  "type": "system",
+  "nodes": [
+    {"id": "sensor", "label": "Temperature Sensor\n(102)", "type": "block"},
+    {"id": "adc", "label": "ADC\n(104)", "type": "block"},
+    {"id": "cpu", "label": "Microprocessor\n(106)", "type": "block"},
+    {"id": "display", "label": "Display\n(108)", "type": "terminal"}
+  ],
+  "edges": [
+    {"from": "sensor", "to": "adc", "label": "analog"},
+    {"from": "adc", "to": "cpu", "label": "digital"},
+    {"from": "cpu", "to": "display"}
+  ]
+}

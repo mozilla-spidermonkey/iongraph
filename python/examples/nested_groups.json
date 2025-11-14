@@ -1,0 +1,24 @@
+{
+  "title": "Multi-Core Processor System",
+  "type": "system",
+  "nodes": [
+    {"id": "core1", "label": "Core 1\n(102)", "type": "block"},
+    {"id": "core2", "label": "Core 2\n(104)", "type": "block"},
+    {"id": "cache", "label": "Shared Cache\n(106)", "type": "block"},
+    {"id": "memory", "label": "DRAM\n(108)", "type": "block"}
+  ],
+  "groups": [
+    {
+      "id": "cpu",
+      "label": "CPU Package 100",
+      "nodes": ["core1", "core2", "cache"],
+      "style": "dashed",
+      "arrangement": "grid"
+    }
+  ],
+  "edges": [
+    {"from": "core1", "to": "cache"},
+    {"from": "core2", "to": "cache"},
+    {"from": "cpu", "to": "memory", "label": "memory bus"}
+  ]
+}

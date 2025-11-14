@@ -1,0 +1,20 @@
+{
+  "title": "Data Validation Method",
+  "type": "method",
+  "nodes": [
+    {"id": "start", "label": "Start", "type": "terminal"},
+    {"id": "receive", "label": "Receive Data", "type": "process"},
+    {"id": "validate", "label": "Valid?", "type": "decision"},
+    {"id": "process", "label": "Process Data", "type": "process"},
+    {"id": "reject", "label": "Reject Data", "type": "process"},
+    {"id": "end", "label": "End", "type": "terminal"}
+  ],
+  "edges": [
+    {"from": "start", "to": "receive"},
+    {"from": "receive", "to": "validate"},
+    {"from": "validate", "to": "process", "label": "yes"},
+    {"from": "validate", "to": "reject", "label": "no"},
+    {"from": "process", "to": "end"},
+    {"from": "reject", "to": "end"}
+  ]
+}
