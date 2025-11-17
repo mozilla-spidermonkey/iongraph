@@ -772,14 +772,12 @@ export class Graph {
           const dummy = nodes[i] as DummyNode;
           assert(dummy.block === null && dummy.flags & LEFTMOST_DUMMY);
           let maxSafeX = nextX;
+          // Don't let dummies go to the right of their source nodes.
           for (const src of dummy.srcNodes) {
             const srcX = src.pos.x + src.dstNodes.indexOf(dummy) * PORT_SPACING;
             if (srcX < maxSafeX) {
               maxSafeX = srcX;
             }
-          }
-          if (dummy.dstBlock.layoutNode.pos.x < maxSafeX) {
-            maxSafeX = dummy.dstBlock.layoutNode.pos.x;
           }
           dummy.pos.x = maxSafeX;
           nextX = dummy.pos.x - BLOCK_GAP;
