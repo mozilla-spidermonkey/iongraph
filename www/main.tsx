@@ -12,16 +12,22 @@ function TestViewer() {
 
   useEffect(() => {
     (async () => {
-      const searchFile = searchParams.get("file");
-      if (searchFile) {
-        const res = await fetch(searchFile);
-        const json = await res.json();
+      //@ts-ignore
+      if (window.__exportedIonJSON) {
+        //@ts-ignore
+        setIonJSON(window.__exportedIonJSON);
+      } else {
+        const searchFile = searchParams.get("file");
+        if (searchFile) {
+          const res = await fetch(searchFile);
+          const json = await res.json();
 
-        // TODO: Remove this "functions" path for 1.0
-        if (json["functions"]) {
-          setIonJSON(migrate(json));
-        } else {
-          setIonJSON(migrate({ functions: [json] }));
+          // TODO: Remove this "functions" path for 1.0
+          if (json["functions"]) {
+            setIonJSON(migrate(json));
+          } else {
+            setIonJSON(migrate({ functions: [json] }));
+          }
         }
       }
     })();

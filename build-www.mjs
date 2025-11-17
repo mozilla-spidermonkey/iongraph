@@ -37,15 +37,28 @@ mkdirSync(outDir, { recursive: true });
 console.log("Copying static files...");
 copyStaticFiles();
 
-console.log("Running esbuild...");
-const ctx = await esbuild.context({
+const baseConfig = {
   entryPoints: ["www/main.tsx"],
   outdir: outDir,
   bundle: true,
-  format: "esm",
   target: ["es2020"],
+};
+const moduleConfig = {
+  ...baseConfig,
+  format: "esm",
   sourcemap: true,
-});
+};
+const standaloneConfig = {
+  ...baseConfig,
+  format: "iife",
+  globalName: "iongraph",
+  minify: true,
+  outExtension: { ".js": ".standalone.js" },
+};
+
+console.log("Running esbuild...");
+await esbuild.build(standaloneConfig);
+const ctx = await esbuild.context(moduleConfig);
 
 if (process.argv.includes("--serve")) {
   await ctx.watch();

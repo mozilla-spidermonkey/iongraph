@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+
+<head>
+  <title>iongraph</title>
+  <style>{{ include "./style.css" }}</style>
+  <style>{{ include "./standalone.css" }}</style>
+</head>
+
+<body>
+  <div id="reactRoot"></div>
+  <script>{{ include "./main.standalone.js" }}</script>
+  <script>window.__exportedIonJSON = {{ IONJSON }}</script>
+  <script>
+    iongraph.render(window.reactRoot);
+  </script>
+</body>
