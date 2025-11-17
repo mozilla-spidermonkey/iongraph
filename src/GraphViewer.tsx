@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { classes } from "./classes.js";
-import { Graph, SC_TOTAL, Vec2 } from "./Graph.js";
+import { Graph } from "./Graph.js";
 import type { BlockPtr, Func, Pass, SampleCounts } from "./iongraph.js";
-import { must } from "./utils.js";
 import { dequal } from "./dequal.js";
 
 export interface GraphViewerProps {

@@ -82,6 +82,10 @@ a.ig-link-normal {
   flex-shrink: 1;
 }
 
+.ig-items-center {
+  align-items: center;
+}
+
 .ig-relative {
   position: relative;
 }

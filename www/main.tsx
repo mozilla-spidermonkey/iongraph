@@ -2,7 +2,7 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { GraphViewer } from '../src/GraphViewer.js';
-import { Func, migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
+import { migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
 
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;
@@ -63,8 +63,10 @@ function TestViewer() {
   }
 
   return <div className="ig-absolute ig-absolute-fill ig-flex ig-flex-column">
-    <div className="ig-bb ig-pv2 ig-ph3">
-      <div><input type="file" onChange={fileSelected} /></div>
+    <div className="ig-bb ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center ig-bg-white">
+      <div>
+        <input type="file" onChange={fileSelected} />
+      </div>
       {funcValid && passValid && <>
         <div>
           Function <input
@@ -77,7 +79,9 @@ function TestViewer() {
               }
             }}
           />
-          pass: <input
+        </div>
+        <div>
+          Pass: <input
             type="number"
             value={pass}
             onChange={e => {
