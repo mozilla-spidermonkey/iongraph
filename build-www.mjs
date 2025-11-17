@@ -1,12 +1,15 @@
 import * as esbuild from "esbuild";
 import { readdirSync, copyFileSync, statSync } from "fs";
-import { join, relative } from "path";
-import { mkdirSync, rmSync, watch } from "fs";
+import { join, relative, resolve } from "path";
+import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "fs";
 
 const outDir = "dist-www";
 
 const staticFileDirs = ["www", "src"];
 const staticFilePattern = /\.(html|css|json)$/;
+
+const reWholeDirective = /\{\{\s*(("[^"]*"|[a-zA-Z0-9_-]+)\s*)+\}\}/g;
+const reDirectiveToken = /"([^"]*)"|([a-zA-Z0-9_-]+)/g;
 
 function findFiles(dir, matches, result) {
   for (const file of readdirSync(dir)) {
@@ -66,6 +69,9 @@ console.log("Running esbuild...");
 await esbuild.build(standaloneConfig);
 const ctx = await esbuild.context(moduleConfig);
 
+console.log("Building standalone HTML...");
+buildStandalone();
+
 if (process.argv.includes("--serve")) {
   await ctx.watch();
   const { hosts, port } = await ctx.serve({
@@ -85,4 +91,32 @@ if (process.argv.includes("--serve")) {
   await ctx.rebuild();
   await ctx.dispose();
   console.log("Built successfully.");
+}
+
+function buildStandalone() {
+  const template = readFileSync("www/standalone.html", "utf8");
+  const processed = template.replaceAll(reWholeDirective, directive => {
+    const parsed = parseDirective(directive);
+    switch (parsed[0]) {
+      case "include-dist": {
+        const resolved = resolve("dist-www", parsed[1]);
+        return readFileSync(resolved, "utf8");
+      }
+      default:
+        return directive;
+    }
+  });
+  writeFileSync(join(outDir, "standalone.html"), processed);
+}
+
+function parseDirective(directive) {
+  const res = [];
+  for (const match of directive.matchAll(reDirectiveToken)) {
+    if (match[1]) {
+      res.push(match[1]);
+    } else {
+      res.push(match[2]);
+    }
+  }
+  return res;
 }
