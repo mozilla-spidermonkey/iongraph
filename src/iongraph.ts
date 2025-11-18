@@ -5,8 +5,6 @@ export interface IonJSON {
   functions: Func[],
 }
 
-export const emptyIonJSON: IonJSON = { version: currentVersion, functions: [] };
-
 export interface Func {
   name: string,
   passes: Pass[],

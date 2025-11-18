@@ -2,23 +2,111 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { GraphViewer } from '../src/GraphViewer.js';
-import { emptyIonJSON, migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
+import { migrate, type IonJSON, type Func, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
+import { assert } from '../src/utils.js';
 
 export function renderWebUI(root: HTMLElement) {
   const reactRoot = createRoot(root);
-  reactRoot.render(<TestViewer />);
+  reactRoot.render(<WebUI />);
 }
 
-export function renderGraphOnly(root: HTMLElement, ionjson: {}) {
+export function renderStandaloneUI(root: HTMLElement, ionjson: {}) {
   const reactRoot = createRoot(root);
   const migrated = migrate(ionjson);
-  reactRoot.render(<GraphViewer func={migrated.functions[0]} />);
+  reactRoot.render(<StandaloneUI ionjson={migrated} />);
 }
 
-function TestViewer() {
-  const searchParams = new URL(window.location.toString()).searchParams;
+const searchParams = new URL(window.location.toString()).searchParams;
 
-  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON, string]>([emptyIonJSON, JSON.stringify(emptyIonJSON)]);
+const initialFuncIndex = searchParams.has("func") ? parseInt(searchParams.get("func")!, 10) : undefined;
+const initialPass = searchParams.has("pass") ? parseInt(searchParams.get("pass")!, 10) : undefined;
+
+interface MenuBarProps {
+  browse?: boolean,
+  export?: boolean,
+  ionjson?: IonJSON,
+
+  funcSelected: (func: Func | null) => void,
+}
+
+function MenuBar(props: MenuBarProps) {
+  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON | null, string]>(
+    props.ionjson
+      ? [props.ionjson, JSON.stringify(props.ionjson)]
+      : [null, ""]
+  );
+  const [funcIndex, setFuncIndex] = useState<number>(initialFuncIndex ?? 0);
+
+  // One-time initializer
+  useEffect(() => {
+    // Trigger funcSelected with any initial ion JSON
+    if (ionjson) {
+      props.funcSelected(ionjson.functions[funcIndex] ?? null);
+    }
+  }, []);
+
+  // Update ionjson if the prop changes.
+  useEffect(() => {
+    if (props.ionjson) {
+      setIonJSON([props.ionjson, JSON.stringify(props.ionjson)]);
+      props.funcSelected(props.ionjson.functions[funcIndex] ?? null);
+    }
+  }, [props.ionjson]);
+
+  // Notify when the func index changes.
+  useEffect(() => {
+    if (ionjson) {
+      props.funcSelected(ionjson.functions[funcIndex] ?? null);
+    }
+  }, [funcIndex]);
+
+  async function fileSelected(e: ChangeEvent<HTMLInputElement>) {
+    const input = e.target;
+    if (!input.files?.length) {
+      return;
+    }
+
+    const file = input.files[0];
+    const newJSON = JSON.parse(await file.text());
+    const migrated = migrate(newJSON);
+    setIonJSON([migrated, JSON.stringify(migrated)]);
+    setFuncIndex(0);
+    props.funcSelected(migrated.functions[0] ?? null);
+  }
+
+  const numFunctions = ionjson?.functions.length ?? 0;
+  const funcIndexValid = 0 <= funcIndex && funcIndex < numFunctions;
+
+  return <div className="ig-bb ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center ig-bg-white">
+    {props.browse && <div>
+      <input type="file" onChange={fileSelected} />
+    </div>}
+    {(ionjson?.functions.length ?? 0) > 1 && <div>
+      Function <input
+        type="number"
+        value={funcIndex}
+        onChange={e => {
+          const newFuncIndex = Math.max(0, Math.min(numFunctions - 1, parseInt(e.target.value, 10)));
+          setFuncIndex(isNaN(newFuncIndex) ? 0 : newFuncIndex);
+        }}
+      />
+    </div>}
+    <div>{ionjson?.functions[funcIndex].name ?? ""}</div>
+    <div className="ig-flex-grow-1"></div>
+    {props.export && <div>
+      <button
+        disabled={!funcIndexValid}
+        onClick={() => {
+          exportStandalone(ionjson?.functions[funcIndex].name ?? "", rawIonJSON, { funcIndex: funcIndex });
+        }}
+      >Export</button>
+    </div>}
+  </div>;
+}
+
+function WebUI() {
+  const [initialIonJSON, setInitialIonJSON] = useState<IonJSON | undefined>();
+  const [func, setFunc] = useState<Func | null>(null);
   const [sampleCounts, setSampleCounts] = useState<SampleCounts | undefined>();
 
   useEffect(() => {
@@ -36,10 +124,9 @@ function TestViewer() {
           migrated = migrate({ functions: [json] });
         }
 
-        setIonJSON([migrated, JSON.stringify(migrated)]);
+        setInitialIonJSON(migrated);
       }
     })();
-
     (async () => {
       const sampleCountsFile = searchParams.get("sampleCounts");
       if (sampleCountsFile) {
@@ -53,72 +140,13 @@ function TestViewer() {
     })();
   }, []);
 
-  const [func, setFunc] = useState(searchParams.has("func") ? parseInt(searchParams.get("func")!, 10) : 0);
-  const [pass, setPass] = useState(searchParams.has("pass") ? parseInt(searchParams.get("pass")!, 10) : 0);
-
-  async function fileSelected(e: ChangeEvent<HTMLInputElement>) {
-    const input = e.target;
-    if (!input.files?.length) {
-      setIonJSON([emptyIonJSON, JSON.stringify(emptyIonJSON)]);
-      return;
-    }
-
-    const file = input.files[0];
-    const newJSON = JSON.parse(await file.text());
-    const migrated = migrate(newJSON);
-    setIonJSON([migrated, JSON.stringify(migrated)]);
-  }
-
-  let blocks: MIRBlock[] = [];
-  const funcValid = 0 <= func && func < ionjson.functions.length;
-  const passes = funcValid ? ionjson.functions[func].passes : [];
-  const passValid = 0 <= pass && pass < passes.length;
-  if (funcValid && passValid) {
-    blocks = passes[pass].mir.blocks;
-  }
-
   return <div className="ig-absolute ig-absolute-fill ig-flex ig-flex-column">
-    <div className="ig-bb ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center ig-bg-white">
-      <div>
-        <input type="file" onChange={fileSelected} />
-      </div>
-      {funcValid && passValid && <>
-        <div>
-          Function <input
-            type="number"
-            value={func}
-            onChange={e => {
-              const newFunc = parseInt(e.target.value, 10);
-              if (0 <= newFunc && newFunc < ionjson.functions.length) {
-                setFunc(newFunc);
-              }
-            }}
-          />
-        </div>
-        <div>
-          Pass: <input
-            type="number"
-            value={pass}
-            onChange={e => {
-              const newPass = parseInt(e.target.value, 10);
-              if (0 <= newPass && newPass < ionjson.functions[func].passes.length) {
-                setPass(newPass);
-              }
-            }}
-          />
-        </div>
-        <div>{ionjson.functions[func].name}</div>
-        <div className="ig-flex-grow-1"></div>
-        <div>
-          <button onClick={() => exportStandalone(ionjson.functions[func].name, rawIonJSON, { func })}>Export</button>
-        </div>
-      </>}
-    </div>
+    <MenuBar browse export ionjson={initialIonJSON} funcSelected={f => setFunc(f)} />
     {
-      funcValid && passValid && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
+      func && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
         <GraphViewer
-          func={ionjson.functions[func]}
-          pass={pass}
+          func={func}
+          pass={initialPass}
           sampleCounts={sampleCounts}
         />
       </div>
@@ -126,19 +154,38 @@ function TestViewer() {
   </div >;
 }
 
+interface StandaloneUIProps {
+  ionjson: IonJSON,
+}
+
+function StandaloneUI(props: StandaloneUIProps) {
+  const [func, setFunc] = useState<Func | null>(null);
+  return <div className="ig-absolute ig-absolute-fill ig-flex ig-flex-column">
+    <MenuBar ionjson={props.ionjson} funcSelected={f => setFunc(f)} />
+    {
+      func && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
+        <GraphViewer
+          func={func}
+          pass={initialPass}
+        />
+      </div>
+    }
+  </div>;
+}
+
 interface ExportOptions {
-  func?: number,
+  funcIndex?: number,
 }
 
 async function exportStandalone(name: string, rawIonJSON: string, opts: ExportOptions = {}) {
   let jsonString = rawIonJSON;
-  if (opts.func !== undefined) {
+  if (opts.funcIndex !== undefined) {
     // HACK: Because the iongraph code actually mutates the input ion JSON, we
     // can't just JSON.stringify it any more, so we have to take the raw JSON
     // from the start of the whole process, re-parse it, filter it, and then
     // generate new raw JSON to write to the file!
     const parsedIonJSON = JSON.parse(rawIonJSON);
-    const func = parsedIonJSON.functions[opts.func];
+    const func = parsedIonJSON.functions[opts.funcIndex];
     const filteredIonJSON: IonJSON = { version: 1, functions: [func] };
     jsonString = JSON.stringify(filteredIonJSON);
   }
