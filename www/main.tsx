@@ -4,10 +4,17 @@ import { createRoot } from 'react-dom/client';
 import { GraphViewer } from '../src/GraphViewer.js';
 import { migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
 
+export function render(root: HTMLElement) {
+  const reactRoot = createRoot(root);
+  reactRoot.render(<TestViewer />);
+}
+
+const defaultIonJSON = [migrate({ functions: [] }), ""] as const;
+
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;
 
-  const [ionjson, setIonJSON] = useState<IonJSON>(migrate({ functions: [] }));
+  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON, string]>(defaultIonJSON);
   const [sampleCounts, setSampleCounts] = useState<SampleCounts | undefined>();
 
   useEffect(() => {
@@ -15,7 +22,7 @@ function TestViewer() {
       //@ts-ignore
       if (window.__exportedIonJSON) {
         //@ts-ignore
-        setIonJSON(window.__exportedIonJSON);
+        setIonJSON(JSON.stringify(window.__exportedIonJSON));
       } else {
         const searchFile = searchParams.get("file");
         if (searchFile) {
@@ -23,11 +30,14 @@ function TestViewer() {
           const json = await res.json();
 
           // TODO: Remove this "functions" path for 1.0
+          let migrated: IonJSON;
           if (json["functions"]) {
-            setIonJSON(migrate(json));
+            migrated = migrate(json);
           } else {
-            setIonJSON(migrate({ functions: [json] }));
+            migrated = migrate({ functions: [json] });
           }
+
+          setIonJSON([migrated, JSON.stringify(migrated)]);
         }
       }
     })();
@@ -51,13 +61,14 @@ function TestViewer() {
   async function fileSelected(e: ChangeEvent<HTMLInputElement>) {
     const input = e.target;
     if (!input.files?.length) {
-      setIonJSON(migrate({ functions: [] }));
+      setIonJSON(defaultIonJSON);
       return;
     }
 
     const file = input.files[0];
     const newJSON = JSON.parse(await file.text());
-    setIonJSON(migrate(newJSON));
+    const migrated = migrate(newJSON);
+    setIonJSON([migrated, JSON.stringify(migrated)]);
   }
 
   let blocks: MIRBlock[] = [];
@@ -99,19 +110,34 @@ function TestViewer() {
           />
         </div>
         <div>{ionjson.functions[func].name}</div>
+        <div className="ig-flex-grow-1"></div>
+        <div>
+          <button onClick={() => exportStandalone(ionjson.functions[func].name, rawIonJSON)}>Export</button>
+        </div>
       </>}
     </div>
-    {funcValid && passValid && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
-      <GraphViewer
-        func={ionjson.functions[func]}
-        pass={pass}
-        sampleCounts={sampleCounts}
-      />
-    </div>}
-  </div>;
+    {
+      funcValid && passValid && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
+        <GraphViewer
+          func={ionjson.functions[func]}
+          pass={pass}
+          sampleCounts={sampleCounts}
+        />
+      </div>
+    }
+  </div >;
 }
 
-export function render(root: HTMLElement) {
-  const reactRoot = createRoot(root);
-  reactRoot.render(<TestViewer />);
+async function exportStandalone(name: string, rawIonJSON: string) {
+  const template = await (await fetch("./standalone.html")).text();
+  const output = template.replace(/\{\{\s*IONJSON\s*\}\}/, rawIonJSON);
+  const url = URL.createObjectURL(new Blob([output], { type: "text/html;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `iongraph-${name}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  // setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
