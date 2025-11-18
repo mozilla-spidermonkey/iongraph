@@ -72,6 +72,13 @@ const ctx = await esbuild.context(moduleConfig);
 console.log("Building standalone HTML...");
 buildStandalone();
 
+if (process.argv.includes("--test-standalone")) {
+  const template = readFileSync(join(outDir, "standalone.html"), "utf-8");
+  const json = readFileSync("/tmp/ion.json");
+  const formatted = template.replace(/\{\{\s*IONJSON\s*\}\}/, json);
+  writeFileSync(join(outDir, "standalone-test.html"), formatted);
+}
+
 if (process.argv.includes("--serve")) {
   await ctx.watch();
   const { hosts, port } = await ctx.serve({

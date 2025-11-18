@@ -30,18 +30,14 @@ interface MenuBarProps {
 }
 
 function MenuBar(props: MenuBarProps) {
-  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON | null, string]>(
-    props.ionjson
-      ? [props.ionjson, JSON.stringify(props.ionjson)]
-      : [null, ""]
-  );
+  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON | null, string]>([null, ""]);
   const [funcIndex, setFuncIndex] = useState<number>(initialFuncIndex ?? 0);
 
   // One-time initializer
   useEffect(() => {
-    // Trigger funcSelected with any initial ion JSON
-    if (ionjson) {
-      props.funcSelected(ionjson.functions[funcIndex] ?? null);
+    if (props.ionjson) {
+      setIonJSON([props.ionjson, JSON.stringify(props.ionjson)]);
+      props.funcSelected(props.ionjson.functions[funcIndex] ?? null);
     }
   }, []);
 
