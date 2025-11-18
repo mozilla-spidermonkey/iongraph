@@ -1,7 +1,11 @@
+export const currentVersion = 1 as const;
+
 export interface IonJSON {
-  version: number,
+  version: typeof currentVersion,
   functions: Func[],
 }
+
+export const emptyIonJSON: IonJSON = { version: currentVersion, functions: [] };
 
 export interface Func {
   name: string,
@@ -76,6 +80,7 @@ export function migrate(ionJSON: any): IonJSON {
     migrateFunc(f, ionJSON.version);
   }
 
+  ionJSON.version = currentVersion;
   return ionJSON;
 }
 
@@ -94,7 +99,7 @@ function migrateFunc(f: any, version: number): Func {
 
 function migrateMIRBlock(b: any, version: number): MIRBlock {
   if (version === 0) {
-    b.ptr = (b.id ?? b.number) as any as BlockPtr;
+    b.ptr = ((b.id ?? b.number) + 1) as any as BlockPtr;
     b.id = b.number;
   }
 

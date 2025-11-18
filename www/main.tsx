@@ -2,19 +2,17 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { GraphViewer } from '../src/GraphViewer.js';
-import { migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
+import { emptyIonJSON, migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
 
 export function render(root: HTMLElement) {
   const reactRoot = createRoot(root);
   reactRoot.render(<TestViewer />);
 }
 
-const defaultIonJSON = [migrate({ functions: [] }), ""] as const;
-
 function TestViewer() {
   const searchParams = new URL(window.location.toString()).searchParams;
 
-  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON, string]>(defaultIonJSON);
+  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON, string]>([emptyIonJSON, JSON.stringify(emptyIonJSON)]);
   const [sampleCounts, setSampleCounts] = useState<SampleCounts | undefined>();
 
   useEffect(() => {
@@ -22,7 +20,8 @@ function TestViewer() {
       //@ts-ignore
       if (window.__exportedIonJSON) {
         //@ts-ignore
-        setIonJSON(JSON.stringify(window.__exportedIonJSON));
+        const migrated = migrate(window.__exportedIonJSON);
+        setIonJSON([migrated, JSON.stringify(migrated)]);
       } else {
         const searchFile = searchParams.get("file");
         if (searchFile) {
@@ -61,7 +60,7 @@ function TestViewer() {
   async function fileSelected(e: ChangeEvent<HTMLInputElement>) {
     const input = e.target;
     if (!input.files?.length) {
-      setIonJSON(defaultIonJSON);
+      setIonJSON([emptyIonJSON, JSON.stringify(emptyIonJSON)]);
       return;
     }
 
