@@ -91,7 +91,8 @@ function MenuBar(props: MenuBarProps) {
         }}
       />
     </div>}
-    <div>{ionjson?.functions[funcIndex].name ?? ""}</div>
+    {ionjson && numFunctions === 0 && <div>No functions to display.</div>}
+    {funcIndexValid && <div>{ionjson?.functions[funcIndex].name ?? ""}</div>}
     <div className="ig-flex-grow-1"></div>
     {props.export && <div>
       <button
