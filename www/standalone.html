@@ -11,6 +11,6 @@
   <script>{{ include-dist "main.standalone.js" }}</script>
   <script>window.__exportedIonJSON = {{ IONJSON }}</script>
   <script>
-    iongraph.render(window.reactRoot);
+    iongraph.renderGraphOnly(window.reactRoot, window.__exportedIonJSON);
   </script>
 </body>

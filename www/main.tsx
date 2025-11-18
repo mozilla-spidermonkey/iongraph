@@ -4,9 +4,15 @@ import { createRoot } from 'react-dom/client';
 import { GraphViewer } from '../src/GraphViewer.js';
 import { emptyIonJSON, migrate, type IonJSON, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
 
-export function render(root: HTMLElement) {
+export function renderWebUI(root: HTMLElement) {
   const reactRoot = createRoot(root);
   reactRoot.render(<TestViewer />);
+}
+
+export function renderGraphOnly(root: HTMLElement, ionjson: {}) {
+  const reactRoot = createRoot(root);
+  const migrated = migrate(ionjson);
+  reactRoot.render(<GraphViewer func={migrated.functions[0]} />);
 }
 
 function TestViewer() {
@@ -17,27 +23,20 @@ function TestViewer() {
 
   useEffect(() => {
     (async () => {
-      //@ts-ignore
-      if (window.__exportedIonJSON) {
-        //@ts-ignore
-        const migrated = migrate(window.__exportedIonJSON);
-        setIonJSON([migrated, JSON.stringify(migrated)]);
-      } else {
-        const searchFile = searchParams.get("file");
-        if (searchFile) {
-          const res = await fetch(searchFile);
-          const json = await res.json();
+      const searchFile = searchParams.get("file");
+      if (searchFile) {
+        const res = await fetch(searchFile);
+        const json = await res.json();
 
-          // TODO: Remove this "functions" path for 1.0
-          let migrated: IonJSON;
-          if (json["functions"]) {
-            migrated = migrate(json);
-          } else {
-            migrated = migrate({ functions: [json] });
-          }
-
-          setIonJSON([migrated, JSON.stringify(migrated)]);
+        // TODO: Remove this "functions" path for 1.0
+        let migrated: IonJSON;
+        if (json["functions"]) {
+          migrated = migrate(json);
+        } else {
+          migrated = migrate({ functions: [json] });
         }
+
+        setIonJSON([migrated, JSON.stringify(migrated)]);
       }
     })();
 
@@ -111,7 +110,7 @@ function TestViewer() {
         <div>{ionjson.functions[func].name}</div>
         <div className="ig-flex-grow-1"></div>
         <div>
-          <button onClick={() => exportStandalone(ionjson.functions[func].name, rawIonJSON)}>Export</button>
+          <button onClick={() => exportStandalone(ionjson.functions[func].name, rawIonJSON, { func })}>Export</button>
         </div>
       </>}
     </div>
@@ -127,9 +126,25 @@ function TestViewer() {
   </div >;
 }
 
-async function exportStandalone(name: string, rawIonJSON: string) {
+interface ExportOptions {
+  func?: number,
+}
+
+async function exportStandalone(name: string, rawIonJSON: string, opts: ExportOptions = {}) {
+  let jsonString = rawIonJSON;
+  if (opts.func !== undefined) {
+    // HACK: Because the iongraph code actually mutates the input ion JSON, we
+    // can't just JSON.stringify it any more, so we have to take the raw JSON
+    // from the start of the whole process, re-parse it, filter it, and then
+    // generate new raw JSON to write to the file!
+    const parsedIonJSON = JSON.parse(rawIonJSON);
+    const func = parsedIonJSON.functions[opts.func];
+    const filteredIonJSON: IonJSON = { version: 1, functions: [func] };
+    jsonString = JSON.stringify(filteredIonJSON);
+  }
+
   const template = await (await fetch("./standalone.html")).text();
-  const output = template.replace(/\{\{\s*IONJSON\s*\}\}/, rawIonJSON);
+  const output = template.replace(/\{\{\s*IONJSON\s*\}\}/, jsonString);
   const url = URL.createObjectURL(new Blob([output], { type: "text/html;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;
@@ -138,5 +153,4 @@ async function exportStandalone(name: string, rawIonJSON: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-  // setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
