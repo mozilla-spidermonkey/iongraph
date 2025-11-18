@@ -73,31 +73,36 @@ function MenuBar(props: MenuBarProps) {
   const numFunctions = ionjson?.functions.length ?? 0;
   const funcIndexValid = 0 <= funcIndex && funcIndex < numFunctions;
 
-  return <div className="ig-bb ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center ig-bg-white">
-    {props.browse && <div>
-      <input type="file" onChange={fileSelected} />
-    </div>}
-    {(ionjson?.functions.length ?? 0) > 1 && <div>
-      Function <input
-        type="number"
-        value={funcIndex}
-        onChange={e => {
-          const newFuncIndex = Math.max(0, Math.min(numFunctions - 1, parseInt(e.target.value, 10)));
-          setFuncIndex(isNaN(newFuncIndex) ? 0 : newFuncIndex);
-        }}
-      />
-    </div>}
-    {ionjson && numFunctions === 0 && <div>No functions to display.</div>}
-    {funcIndexValid && <div>{ionjson?.functions[funcIndex].name ?? ""}</div>}
-    <div className="ig-flex-grow-1"></div>
-    {props.export && <div>
-      <button
-        disabled={!funcIndexValid}
-        onClick={() => {
-          exportStandalone(ionjson?.functions[funcIndex].name ?? "", rawIonJSON, { funcIndex: funcIndex });
-        }}
-      >Export</button>
-    </div>}
+  return <div className="ig-bb ig-flex ig-bg-white">
+    <div className="ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center ig-br">
+      {props.browse && <div>
+        <input type="file" onChange={fileSelected} />
+      </div>}
+      {numFunctions > 1 && <div>
+        Function <input
+          type="number"
+          value={funcIndex}
+          className="ig-w3"
+          onChange={e => {
+            const newFuncIndex = Math.max(0, Math.min(numFunctions - 1, parseInt(e.target.value, 10)));
+            setFuncIndex(isNaN(newFuncIndex) ? 0 : newFuncIndex);
+          }}
+        /> / {numFunctions}
+      </div>}
+      {ionjson && numFunctions === 0 && <div>No functions to display.</div>}
+    </div>
+    <div className="ig-flex-grow-1 ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center">
+      {funcIndexValid && <div>{ionjson?.functions[funcIndex].name ?? ""}</div>}
+      <div className="ig-flex-grow-1"></div>
+      {props.export && <div>
+        <button
+          disabled={!funcIndexValid}
+          onClick={() => {
+            exportStandalone(ionjson?.functions[funcIndex].name ?? "", rawIonJSON, { funcIndex: funcIndex });
+          }}
+        >Export</button>
+      </div>}
+    </div>
   </div>;
 }
 
