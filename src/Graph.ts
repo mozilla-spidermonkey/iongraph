@@ -1211,11 +1211,16 @@ export class Graph {
       }
     }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", `${maxX}`);
-    svg.setAttribute("height", `${maxY}`);
     this.graphContainer.appendChild(svg);
 
-    this.size = { x: maxX, y: maxY };
+    const trackPositions = (xs: number[], ys: number[]) => {
+      for (const x of xs) {
+        maxX = Math.max(maxX, x + CONTENT_PADDING);
+      }
+      for (const y of ys) {
+        maxY = Math.max(maxY, y + CONTENT_PADDING);
+      }
+    };
 
     // Render arrows
     for (let layer = 0; layer < nodesByLayer.length; layer++) {
@@ -1239,6 +1244,7 @@ export class Graph {
             const y2 = header.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
             const arrow = loopHeaderArrow(x1, y1, x2, y2);
             svg.appendChild(arrow);
+            trackPositions([x1, x2], [y1, y2]);
           } else if (node.flags & IMMINENT_BACKEDGE_DUMMY) {
             // Draw from the dummy to the backedge
             const backedge = must(dst.block);
@@ -1248,6 +1254,7 @@ export class Graph {
             const y2 = backedge.layoutNode.pos.y + HEADER_ARROW_PUSHDOWN;
             const arrow = arrowToBackedge(x1, y1, x2, y2);
             svg.appendChild(arrow);
+            trackPositions([x1, x2], [y1, y2]);
           } else if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
             const x2 = dst.pos.x + PORT_START;
             const y2 = dst.pos.y + ((dst.flags & IMMINENT_BACKEDGE_DUMMY) ? HEADER_ARROW_PUSHDOWN + ARROW_RADIUS : 0);
@@ -1256,11 +1263,13 @@ export class Graph {
               const ym = y1 - TRACK_PADDING; // this really shouldn't matter because we should straighten all these out
               const arrow = upwardArrow(x1, y1, x2, y2, ym, false);
               svg.appendChild(arrow);
+              trackPositions([x1, x2], [y1, y2, ym]);
             } else {
               // Draw arrow to backedge dummy
               const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
               const arrow = arrowFromBlockToBackedgeDummy(x1, y1, x2, y2, ym);
               svg.appendChild(arrow);
+              trackPositions([x1, x2], [y1, y2, ym]);
             }
           } else {
             const x2 = dst.pos.x + PORT_START;
@@ -1268,10 +1277,15 @@ export class Graph {
             const ym = (y1 - node.size.y) + layerHeights[layer] + TRACK_PADDING + trackHeights[layer] / 2 + node.jointOffsets[i];
             const arrow = downwardArrow(x1, y1, x2, y2, ym, dst.block !== null);
             svg.appendChild(arrow);
+            trackPositions([x1, x2], [y1, y2, ym]);
           }
         }
       }
     }
+
+    svg.setAttribute("width", `${maxX}`);
+    svg.setAttribute("height", `${maxY}`);
+    this.size = { x: maxX, y: maxY };
 
     // Render debug nodes
     if (+DEBUG) {
