@@ -81,10 +81,13 @@ function MenuBar(props: MenuBarProps) {
       {numFunctions > 1 && <div>
         Function <input
           type="number"
-          value={funcIndex}
+          min="1"
+          max={numFunctions}
+          value={funcIndex + 1}
           className="ig-w3"
           onChange={e => {
-            const newFuncIndex = Math.max(0, Math.min(numFunctions - 1, parseInt(e.target.value, 10)));
+            const displayValue = parseInt(e.target.value, 10);
+            const newFuncIndex = Math.max(0, Math.min(numFunctions - 1, displayValue - 1));
             setFuncIndex(isNaN(newFuncIndex) ? 0 : newFuncIndex);
           }}
         /> / {numFunctions}
