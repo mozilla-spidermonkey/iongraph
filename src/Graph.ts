@@ -361,7 +361,11 @@ export class Graph {
     }
 
     for (const r of roots) {
+      log.group("findLoops");
       this.findLoops(r);
+      log.groupEnd();
+    }
+    for (const r of roots) {
       this.layer(r);
     }
     const layoutNodesByLayer = this.makeLayoutNodes();
@@ -387,23 +391,31 @@ export class Graph {
       return;
     }
 
+    log.log("block:", block.id, block.loopDepth, "loopIDsByDepth:", loopIDsByDepth);
+
     if (isTrueLH(block)) {
-      assert(block.loopDepth === loopIDsByDepth.length);
       const parentID = loopIDsByDepth[loopIDsByDepth.length - 1];
       const parent = asLH(this.blocksByID.get(parentID));
       block.parentLoop = parent;
 
       loopIDsByDepth = [...loopIDsByDepth, block.id];
+      log.log("Block", block.id, "is true loop header, loopIDsByDepth is now", loopIDsByDepth);
+    }
+
+    if (block.loopDepth > loopIDsByDepth.length - 1) {
+      // Sometimes the MIR optimization process can turn loop headers into
+      // normal blocks, which means we have blocks that spuriously increase in
+      // loop depth. Or perhaps we have an OSR entry that jumps straight into
+      // the function at some point. In both cases we will see a higher loop
+      // depth than we would think possible, but in each case it is ok to just
+      // force the block back to a lesser loop depth.
+      block.loopDepth = loopIDsByDepth.length - 1;
+      log.log("Block", block.id, "has been forced back to loop depth", block.loopDepth);
     }
 
     if (block.loopDepth < loopIDsByDepth.length - 1) {
       loopIDsByDepth = loopIDsByDepth.slice(0, block.loopDepth + 1);
-    } else if (block.loopDepth >= loopIDsByDepth.length) {
-      // Sometimes the MIR optimization process can turn loop headers into
-      // normal blocks, which means we have blocks that spuriously increase in
-      // loop depth. In this case, just force the block back to a lesser loop
-      // depth.
-      block.loopDepth = loopIDsByDepth.length - 1;
+      log.log("Block", block.id, "has low loop depth, therefore we exited a loop. loopIDsByDepth:", loopIDsByDepth);
     }
     block.loopID = loopIDsByDepth[block.loopDepth];
 
