@@ -61,7 +61,7 @@ function asTrueLH(block: Block | undefined): LoopHeader {
   if (isTrueLH(block)) {
     return block;
   }
-  throw new Error("Block is not a LoopHeader");
+  throw new Error(`Block ${block.id} is not a LoopHeader`);
 }
 
 function asLH(block: Block | undefined): LoopHeader {
@@ -69,7 +69,7 @@ function asLH(block: Block | undefined): LoopHeader {
   if (isLH(block)) {
     return block as LoopHeader;
   }
-  throw new Error("Block is not a pseudo LoopHeader");
+  throw new Error(`Block ${block.id} is not a pseudo LoopHeader`);
 }
 
 type LayoutNode = BlockNode | DummyNode;
@@ -344,11 +344,12 @@ export class Graph {
   }
 
   private layout(): [LayoutNode[][], number[], number[]] {
-    const roots = this.blocks.filter(b => b.predecessors.length === 0);
+    const [roots, osrBlocks] = this.findLayoutRoots();
+    log.log("Layout roots:", roots.map(r => r.id));
 
-    // Make the roots into pseudo loop headers.
-    for (const r of roots) {
-      const root = r as LoopHeader;
+    // Make the roots and OSR blocks into pseudo loop headers.
+    for (const b of [...roots, ...osrBlocks]) {
+      const root = b as LoopHeader;
       root.loopHeight = 0;
       root.parentLoop = null;
       root.outgoingEdges = [];
@@ -366,14 +367,59 @@ export class Graph {
       log.groupEnd();
     }
     for (const r of roots) {
+      log.group("layer");
       this.layer(r);
+      log.groupEnd();
     }
+    for (const b of osrBlocks) {
+      b.layer = 0;
+      b.loopID = b.id;
+    }
+
     const layoutNodesByLayer = this.makeLayoutNodes();
     this.straightenEdges(layoutNodesByLayer);
     const trackHeights = this.finagleJoints(layoutNodesByLayer);
     const layerHeights = this.verticalize(layoutNodesByLayer, trackHeights);
 
     return [layoutNodesByLayer, layerHeights, trackHeights];
+  }
+
+  // Finds the "layout roots" of the graph, which are the blocks we should
+  // start the layout process from. This may not always equal the true roots
+  // (blocks without predecessors), because OSR blocks can cause us to begin
+  // layout at arbitrary points in the graph.
+  private findLayoutRoots(): [Block[], Block[]] {
+    const newRoots: Block[] = [];
+    const osrBlocks: Block[] = [];
+    const roots = this.blocks.filter(b => b.predecessors.length === 0);
+    for (const root of roots) {
+      let newRoot = root;
+      if (root.attributes.includes("osr")) {
+        assert(root.succs.length > 0);
+        osrBlocks.push(root);
+        newRoot = root.succs[0];
+
+        // Walk up the graph by repeatedly choosing the first non-OSR, non-
+        // backedge predecessor.
+        for (let j = 0; ; j++) {
+          if (j >= 10_000_000) {
+            throw new Error("likely infinite loop");
+          }
+
+          const validPredecessors = newRoot.preds.filter(p => !p.attributes.includes("osr") && !p.attributes.includes("backedge"));
+          if (validPredecessors.length === 0) {
+            break;
+          }
+          newRoot = validPredecessors[0];
+        }
+      }
+
+      // Track and deduplicate
+      if (!newRoots.includes(newRoot)) {
+        newRoots.push(newRoot);
+      }
+    }
+    return [newRoots, osrBlocks];
   }
 
   // Walks through the graph tracking which loop each block belongs to. As
@@ -392,6 +438,7 @@ export class Graph {
     }
 
     log.log("block:", block.id, block.loopDepth, "loopIDsByDepth:", loopIDsByDepth);
+    log.log(block.attributes);
 
     if (isTrueLH(block)) {
       const parentID = loopIDsByDepth[loopIDsByDepth.length - 1];
@@ -427,6 +474,8 @@ export class Graph {
   }
 
   private layer(block: Block, layer = 0) {
+    log.log("block", block.id, "layer", layer);
+
     if (block.attributes.includes("backedge")) {
       block.layer = block.succs[0].layer;
       return;
@@ -464,6 +513,8 @@ export class Graph {
   }
 
   private makeLayoutNodes(): LayoutNode[][] {
+    log.group("makeLayoutNodes");
+
     function connectNodes(from: LayoutNode, fromPort: number, to: LayoutNode) {
       from.dstNodes[fromPort] = to;
       if (!to.srcNodes.includes(from)) {
@@ -498,6 +549,8 @@ export class Graph {
     const activeEdges: IncompleteEdge[] = [];
     const latestDummiesForBackedges = new Map<Block, DummyNode>();
     for (const [layer, blocks] of blocksByLayer.entries()) {
+      log.group("layer", layer, "blocks", blocks.map(b => b.id));
+
       // Delete any active edges that terminate at this layer, since we do
       // not want to make any dummy nodes for them.
       const terminatingEdges: IncompleteEdge[] = [];
@@ -639,6 +692,8 @@ export class Graph {
         const backedgeDummy = must(latestDummiesForBackedges.get(edge.dstBlock));
         connectNodes(edge.src, edge.srcPort, backedgeDummy);
       }
+
+      log.groupEnd();
     }
 
     // Prune backedge dummies that don't have a source. This can happen because
@@ -704,6 +759,7 @@ export class Graph {
       }
     }
 
+    log.groupEnd();
     return layoutNodesByLayer;
   }
 
