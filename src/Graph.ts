@@ -396,11 +396,12 @@ export class Graph {
       let newRoot = root;
       if (root.attributes.includes("osr")) {
         assert(root.succs.length > 0);
-        osrBlocks.push(root);
-        newRoot = root.succs[0];
 
         // Walk up the graph by repeatedly choosing the first non-OSR, non-
         // backedge predecessor.
+
+        const postOSR = root.succs[0];
+        newRoot = postOSR;
         for (let j = 0; ; j++) {
           if (j >= 10_000_000) {
             throw new Error("likely infinite loop");
@@ -411,6 +412,14 @@ export class Graph {
             break;
           }
           newRoot = validPredecessors[0];
+        }
+
+        // Did we actually end up at a new block? If so, track it, otherwise
+        // just treat the OSR block as a normal root.
+        if (newRoot !== postOSR) {
+          osrBlocks.push(root);
+        } else {
+          newRoot = root;
         }
       }
 
@@ -520,6 +529,7 @@ export class Graph {
       if (!to.srcNodes.includes(from)) {
         to.srcNodes.push(from);
       }
+      log.log("connected", from.id, "to", to.id);
     }
 
     let blocksByLayer: Block[][];
@@ -591,6 +601,7 @@ export class Graph {
           layoutNodesByLayer[layer].push(newDummy);
           dummiesByDest.set(edge.dstBlock.id, newDummy);
           dummy = newDummy;
+          log.log("Created dummy", dummy.id, "on the way to block", edge.dstBlock.id);
         }
 
         // Update the active edge with the latest dummy.
@@ -700,6 +711,7 @@ export class Graph {
     // we always generate dummy nodes at each level for active loops, but if a
     // loop doesn't branch back at the end, several dummy nodes will be left
     // orphaned.
+    log.log("Pruning backedge dummies");
     {
       const orphanRoots: DummyNode[] = [];
       for (const dummy of backedgeDummies(layoutNodesByLayer)) {
@@ -728,6 +740,7 @@ export class Graph {
     }
 
     // Mark leftmost and rightmost dummies.
+    log.log("Marking leftmost and rightmost dummies");
     for (const nodes of layoutNodesByLayer) {
       for (let i = 0; i < nodes.length; i++) {
         if (nodes[i].block === null) {
@@ -746,6 +759,7 @@ export class Graph {
     }
 
     // Ensure that our nodes are all ok
+    log.log("Verifying integrity of all nodes");
     for (const layer of layoutNodesByLayer) {
       for (const node of layer) {
         if (node.block) {
