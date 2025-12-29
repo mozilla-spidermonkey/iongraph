@@ -29,9 +29,12 @@ export interface Vec2 {
   y: number,
 }
 
-type Block = MIRBlock & {
-  // Properties added at runtime for this graph
+type Block = {
+  ptr: BlockPtr,
+  id: BlockID,
+  mir: MIRBlock,
   lir: LIRBlock | null,
+
   preds: Block[],
   succs: Block[],
   el: HTMLElement,
@@ -49,7 +52,7 @@ type LoopHeader = Block & {
 }
 
 function isTrueLH(block: Block): block is LoopHeader {
-  return block.attributes.includes("loopheader");
+  return block.mir.attributes.includes("loopheader");
 }
 
 function isLH(block: Block): block is LoopHeader {
@@ -169,9 +172,7 @@ export class Graph {
   //
   // Core iongraph data
   //
-  pass: Pass;
   blocks: Block[];
-  blocksInOrder: Block[];
   blocksByID: Map<BlockID, Block>;
   blocksByPtr: Map<BlockPtr, Block>;
   insPtrsByID: Map<InsID, InsPtr>;
@@ -212,8 +213,6 @@ export class Graph {
   instructionPalette: string[];
 
   constructor(viewport: HTMLElement, pass: Pass, options: GraphOptions = {}) {
-    const blocks = pass.mir.blocks as Block[];
-
     this.viewport = viewport;
     const viewportRect = viewport.getBoundingClientRect();
     this.viewportSize = {
@@ -225,15 +224,6 @@ export class Graph {
     this.graphContainer.classList.add("ig-graph");
     this.graphContainer.style.transformOrigin = "top left";
     this.viewport.appendChild(this.graphContainer);
-
-    this.pass = pass;
-    this.blocks = blocks;
-    this.blocksInOrder = [...blocks].sort((a, b) => a.id - b.id);
-    this.blocksByID = new Map();
-    this.blocksByPtr = new Map();
-    this.insPtrsByID = new Map();
-    this.insIDsByPtr = new Map();
-    this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
     this.sampleCounts = options.sampleCounts;
     this.maxSampleCounts = [0, 0];
@@ -270,23 +260,47 @@ export class Graph {
     this.highlightedInstructions = [];
     this.instructionPalette = options.instructionPalette ?? [0, 1, 2, 3, 4].map(n => `var(--ig-highlight-${n})`);
 
-    const lirBlocks = new Map<BlockID, LIRBlock>();
-    for (const lir of pass.lir.blocks) {
-      lirBlocks.set(lir.id, lir);
-    }
+    this.blocks = pass.mir.blocks.map(m => {
+      const block: Block = {
+        ptr: m.ptr,
+        id: m.id,
+        mir: m,
+        lir: pass.lir.blocks.find(l => l.id === m.id) ?? null,
 
-    // Initialize blocks
-    for (const block of blocks) {
+        preds: [],
+        succs: [],
+        el: undefined as unknown as HTMLElement, // set below in constructor
+        size: { x: 0, y: 0 },
+        layer: -1,
+        loopID: -1 as BlockID,
+        layoutNode: undefined as unknown as LayoutNode, // set in makeLayoutNodes
+      };
+
+      if (block.mir.attributes.includes("loopheader")) {
+        const lh = block as LoopHeader;
+        lh.loopHeight = 0;
+        lh.parentLoop = null;
+        lh.outgoingEdges = [];
+      }
+
       assert(block.ptr, "blocks must always have non-null ptrs");
+      return block;
+    });
+    this.blocksByID = new Map();
+    this.blocksByPtr = new Map();
+    this.insPtrsByID = new Map();
+    this.insIDsByPtr = new Map();
+    this.loops = []; // top-level loops; this basically forms the root of the loop tree
 
+    // Initialize maps
+    for (const block of this.blocks) {
       this.blocksByID.set(block.id, block);
       this.blocksByPtr.set(block.ptr, block);
-      for (const ins of block.instructions) {
+      for (const ins of block.mir.instructions) {
         this.insPtrsByID.set(ins.id, ins.ptr);
         this.insIDsByPtr.set(ins.ptr, ins.id);
       }
 
-      block.lir = lirBlocks.get(block.id) ?? null;
       if (block.lir) {
         for (const ins of block.lir.instructions) {
           // TODO: This is kind of jank because it will overwrite MIR
@@ -296,18 +310,23 @@ export class Graph {
           this.insIDsByPtr.set(ins.ptr, ins.id);
         }
       }
+    }
 
-      const el = this.renderBlock(block);
-      block.el = el;
+    // After putting all blocks in our maps, fill out block-to-block references.
+    for (const block of this.blocks) {
+      block.preds = block.mir.predecessors.map(id => must(this.blocksByID.get(id)));
+      block.succs = block.mir.successors.map(id => must(this.blocksByID.get(id)));
 
-      block.layer = -1;
-      block.loopID = -1 as BlockID;
-      if (block.attributes.includes("loopheader")) {
-        const lh = block as LoopHeader;
-        lh.loopHeight = 0;
-        lh.parentLoop = null;
-        lh.outgoingEdges = [];
+      if (isTrueLH(block)) {
+        const backedges = block.preds.filter(b => b.mir.attributes.includes("backedge"));
+        assert(backedges.length === 1);
+        block.backedge = backedges[0];
       }
+    }
+
+    // Render blocks
+    for (const block of this.blocks) {
+      block.el = this.renderBlock(block);
     }
 
     // Compute sizes for all blocks. We do this after rendering all blocks so
@@ -318,23 +337,11 @@ export class Graph {
     // any others. Adding another block to the page should not invalidate all
     // the layout properties of all the others! We should not see an 85%
     // speedup just from moving this out of the first loop, but we do!)
-    for (const block of blocks) {
+    for (const block of this.blocks) {
       block.size = {
         x: block.el.clientWidth,
         y: block.el.clientHeight,
       };
-    }
-
-    // After putting all blocks in our map, fill out block-to-block references.
-    for (const block of blocks) {
-      block.preds = block.predecessors.map(id => must(this.blocksByID.get(id)));
-      block.succs = block.successors.map(id => must(this.blocksByID.get(id)));
-
-      if (isTrueLH(block)) {
-        const backedges = block.preds.filter(b => b.attributes.includes("backedge"));
-        assert(backedges.length === 1);
-        block.backedge = backedges[0];
-      }
     }
 
     const [nodesByLayer, layerHeights, trackHeights] = this.layout();
@@ -391,10 +398,10 @@ export class Graph {
   private findLayoutRoots(): [Block[], Block[]] {
     const newRoots: Block[] = [];
     const osrBlocks: Block[] = [];
-    const roots = this.blocks.filter(b => b.predecessors.length === 0);
+    const roots = this.blocks.filter(b => b.preds.length === 0);
     for (const root of roots) {
       let newRoot = root;
-      if (root.attributes.includes("osr")) {
+      if (root.mir.attributes.includes("osr")) {
         assert(root.succs.length > 0);
 
         // Walk up the graph by repeatedly choosing the first non-OSR, non-
@@ -407,7 +414,7 @@ export class Graph {
             throw new Error("likely infinite loop");
           }
 
-          const validPredecessors = newRoot.preds.filter(p => !p.attributes.includes("osr") && !p.attributes.includes("backedge"));
+          const validPredecessors = newRoot.preds.filter(p => !p.mir.attributes.includes("osr") && !p.mir.attributes.includes("backedge"));
           if (validPredecessors.length === 0) {
             break;
           }
@@ -446,8 +453,8 @@ export class Graph {
       return;
     }
 
-    log.log("block:", block.id, block.loopDepth, "loopIDsByDepth:", loopIDsByDepth);
-    log.log(block.attributes);
+    log.log("block:", block.id, block.mir.loopDepth, "loopIDsByDepth:", loopIDsByDepth);
+    log.log(block.mir.attributes);
 
     if (isTrueLH(block)) {
       const parentID = loopIDsByDepth[loopIDsByDepth.length - 1];
@@ -458,24 +465,24 @@ export class Graph {
       log.log("Block", block.id, "is true loop header, loopIDsByDepth is now", loopIDsByDepth);
     }
 
-    if (block.loopDepth > loopIDsByDepth.length - 1) {
+    if (block.mir.loopDepth > loopIDsByDepth.length - 1) {
       // Sometimes the MIR optimization process can turn loop headers into
       // normal blocks, which means we have blocks that spuriously increase in
       // loop depth. Or perhaps we have an OSR entry that jumps straight into
       // the function at some point. In both cases we will see a higher loop
       // depth than we would think possible, but in each case it is ok to just
       // force the block back to a lesser loop depth.
-      block.loopDepth = loopIDsByDepth.length - 1;
-      log.log("Block", block.id, "has been forced back to loop depth", block.loopDepth);
+      block.mir.loopDepth = loopIDsByDepth.length - 1;
+      log.log("Block", block.id, "has been forced back to loop depth", block.mir.loopDepth);
     }
 
-    if (block.loopDepth < loopIDsByDepth.length - 1) {
-      loopIDsByDepth = loopIDsByDepth.slice(0, block.loopDepth + 1);
+    if (block.mir.loopDepth < loopIDsByDepth.length - 1) {
+      loopIDsByDepth = loopIDsByDepth.slice(0, block.mir.loopDepth + 1);
       log.log("Block", block.id, "has low loop depth, therefore we exited a loop. loopIDsByDepth:", loopIDsByDepth);
     }
-    block.loopID = loopIDsByDepth[block.loopDepth];
+    block.loopID = loopIDsByDepth[block.mir.loopDepth];
 
-    if (!block.attributes.includes("backedge")) {
+    if (!block.mir.attributes.includes("backedge")) {
       for (const succ of block.succs) {
         this.findLoops(succ, loopIDsByDepth);
       }
@@ -485,7 +492,7 @@ export class Graph {
   private layer(block: Block, layer = 0) {
     log.log("block", block.id, "layer", layer);
 
-    if (block.attributes.includes("backedge")) {
+    if (block.mir.attributes.includes("backedge")) {
       block.layer = block.succs[0].layer;
       return;
     }
@@ -504,7 +511,7 @@ export class Graph {
     }
 
     for (const succ of block.succs) {
-      if (succ.loopDepth < block.loopDepth) {
+      if (succ.mir.loopDepth < block.mir.loopDepth) {
         // This is an outgoing edge from the current loop.
         // Track it on our current loop's header to be layered later.
         const loopHeader = asLH(this.blocksByID.get(block.loopID));
@@ -684,12 +691,12 @@ export class Graph {
           latestDummiesForBackedges.set(backedge, backedgeDummy);
         }
 
-        if (block.attributes.includes("backedge")) {
+        if (block.mir.attributes.includes("backedge")) {
           // Connect backedge to loop header immediately
           connectNodes(block.layoutNode, 0, block.succs[0].layoutNode);
         } else {
           for (const [i, succ] of block.succs.entries()) {
-            if (succ.attributes.includes("backedge")) {
+            if (succ.mir.attributes.includes("backedge")) {
               // Track this edge to be added after all the backedge dummies on
               // this row have been added.
               backedgeEdges.push({ src: node, srcPort: i, dstBlock: succ });
@@ -763,7 +770,7 @@ export class Graph {
     for (const layer of layoutNodesByLayer) {
       for (const node of layer) {
         if (node.block) {
-          assert(node.dstNodes.length === node.block.successors.length, `expected node ${node.id} for block ${node.block.id} to have ${node.block.successors.length} destination nodes, but got ${node.dstNodes.length} instead`);
+          assert(node.dstNodes.length === node.block.succs.length, `expected node ${node.id} for block ${node.block.id} to have ${node.block.succs.length} destination nodes, but got ${node.dstNodes.length} instead`);
         } else {
           assert(node.dstNodes.length === 1, `expected dummy node ${node.id} to have only one destination node, but got ${node.dstNodes.length} instead`);
         }
@@ -921,7 +928,7 @@ export class Graph {
           const node = nodes[i];
 
           // Only do this to block nodes, and not to backedges.
-          if (!node.block || node.block.attributes.includes("backedge")) {
+          if (!node.block || node.block.mir.attributes.includes("backedge")) {
             continue;
           }
 
@@ -932,7 +939,7 @@ export class Graph {
             deltasToTry.push((parent.pos.x + srcPortOffset) - (node.pos.x + dstPortOffset));
           }
           for (const [srcPort, dst] of node.dstNodes.entries()) {
-            if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
+            if (dst.block === null && dst.dstBlock.mir.attributes.includes("backedge")) {
               continue;
             }
             const srcPortOffset = PORT_START + srcPort * PORT_SPACING;
@@ -1081,7 +1088,7 @@ export class Graph {
       for (const node of nodes) {
         node.jointOffsets = new Array(node.dstNodes.length).fill(0);
 
-        if (node.block?.attributes.includes("backedge")) {
+        if (node.block?.mir.attributes.includes("backedge")) {
           continue;
         }
 
@@ -1182,18 +1189,18 @@ export class Graph {
     const el = document.createElement("div");
     this.graphContainer.appendChild(el);
     el.classList.add("ig-block", "ig-bg-white");
-    for (const att of block.attributes) {
+    for (const att of block.mir.attributes) {
       el.classList.add(`ig-block-att-${att}`);
     }
     el.setAttribute("data-ig-block-ptr", `${block.ptr}`);
     el.setAttribute("data-ig-block-id", `${block.id}`);
 
     let desc = "";
-    if (block.attributes.includes("loopheader")) {
+    if (block.mir.attributes.includes("loopheader")) {
       desc = " (loop header)";
-    } else if (block.attributes.includes("backedge")) {
+    } else if (block.mir.attributes.includes("backedge")) {
       desc = " (backedge)";
-    } else if (block.attributes.includes("splitedge")) {
+    } else if (block.mir.attributes.includes("splitedge")) {
       desc = " (split edge)";
     }
     const header = document.createElement("div");
@@ -1238,13 +1245,13 @@ export class Graph {
           <col style="width: 1px">
         </colgroup>
       `;
-      for (const ins of block.instructions) {
+      for (const ins of block.mir.instructions) {
         insns.appendChild(this.renderMIRInstruction(ins));
       }
     }
     insnsContainer.appendChild(insns);
 
-    if (block.successors.length === 2) {
+    if (block.succs.length === 2) {
       for (const [i, label] of [1, 0].entries()) {
         const edgeLabel = document.createElement("div");
         edgeLabel.innerText = `${label}`;
@@ -1317,7 +1324,7 @@ export class Graph {
           const x1 = node.pos.x + PORT_START + PORT_SPACING * i;
           const y1 = node.pos.y + node.size.y;
 
-          if (node.block?.attributes.includes("backedge")) {
+          if (node.block?.mir.attributes.includes("backedge")) {
             // Draw loop header arrow
             const header = node.block.succs[0];
             const x1 = node.pos.x;
@@ -1337,7 +1344,7 @@ export class Graph {
             const arrow = arrowToBackedge(x1, y1, x2, y2);
             svg.appendChild(arrow);
             trackPositions([x1, x2], [y1, y2]);
-          } else if (dst.block === null && dst.dstBlock.attributes.includes("backedge")) {
+          } else if (dst.block === null && dst.dstBlock.mir.attributes.includes("backedge")) {
             const x2 = dst.pos.x + PORT_START;
             const y2 = dst.pos.y + ((dst.flags & IMMINENT_BACKEDGE_DUMMY) ? HEADER_ARROW_PUSHDOWN + ARROW_RADIUS : 0);
             if (node.block === null) {
@@ -1682,10 +1689,10 @@ export class Graph {
     if (dir === "down" || dir === "up") {
       // Vertical navigation
       if (!selected) {
-        const blocks = this.blocksInOrder;
+        const blocks = [...this.blocks].sort((a, b) => a.id - b.id);
         // No block selected; start navigation anew
-        const rootBlocks = blocks.filter(b => b.predecessors.length === 0);
-        const leafBlocks = blocks.filter(b => b.successors.length === 0);
+        const rootBlocks = blocks.filter(b => b.preds.length === 0);
+        const leafBlocks = blocks.filter(b => b.succs.length === 0);
         const fauxSiblings = dir === "down" ? rootBlocks : leafBlocks;
         const firstBlock = fauxSiblings[0];
         assert(firstBlock);
@@ -1701,9 +1708,9 @@ export class Graph {
         const currentBlock = must(this.blocksByPtr.get(selected));
         const nextSiblings: BlockPtr[] = (
           dir === "down"
-            ? currentBlock.successors
-            : currentBlock.predecessors
-        ).map(id => must(this.blocksByID.get(id)).ptr);
+            ? currentBlock.succs
+            : currentBlock.preds
+        ).map(next => next.ptr);
 
         // If we have navigated to a different sibling at our current point in
         // the stack, we have gone off our prior track and start a new one.
@@ -2025,7 +2032,7 @@ function* dummies(layoutNodesByLayer: LayoutNode[][]) {
 function* backedgeDummies(layoutNodesByLayer: LayoutNode[][]) {
   for (const nodes of layoutNodesByLayer) {
     for (const node of nodes) {
-      if (node.block === null && node.dstBlock.attributes.includes("backedge")) {
+      if (node.block === null && node.dstBlock.mir.attributes.includes("backedge")) {
         yield node;
       }
     }
