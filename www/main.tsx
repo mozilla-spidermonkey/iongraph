@@ -1,9 +1,9 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react';
-import { createRoot } from 'react-dom/client';
+import { ChangeEvent, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
 
-import { GraphViewer, GraphViewerProps } from '../src/GraphViewer.js';
-import { migrate, type IonJSON, type Func, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
-import { assert, must } from '../src/utils.js';
+import { migrate, type IonJSON, type Func, type SampleCounts } from "../src/iongraph.js";
+import { GraphViewerReact } from "../src/react-components.js";
+import { must } from "../src/utils.js";
 
 export function renderWebUI(root: HTMLElement) {
   const reactRoot = createRoot(root);
@@ -150,7 +150,7 @@ function WebUI() {
     <MenuBar browse export ionjson={initialIonJSON} funcSelected={f => setFunc(f)} />
     {
       func && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
-        <GraphViewer2
+        <GraphViewerReact
           func={func}
           pass={initialPass}
           sampleCounts={sampleCounts}
@@ -158,27 +158,6 @@ function WebUI() {
       </div>
     }
   </div >;
-}
-
-function GraphViewer2(props: GraphViewerProps) {
-  const root = useRef<HTMLDivElement>(null);
-  const graphViewer = useRef<GraphViewer | null>(null);
-
-  useEffect(() => {
-    if (graphViewer.current) {
-      graphViewer.current.destroy();
-      graphViewer.current = null;
-    }
-    if (root.current) {
-      graphViewer.current = new GraphViewer(root.current, props);
-    }
-
-    return () => {
-      graphViewer.current?.destroy();
-    };
-  });
-
-  return <div ref={root} />
 }
 
 interface StandaloneUIProps {
@@ -191,7 +170,7 @@ function StandaloneUI(props: StandaloneUIProps) {
     <MenuBar ionjson={props.ionjson} funcSelected={f => setFunc(f)} />
     {
       func && <div className="ig-relative ig-flex-basis-0 ig-flex-grow-1 ig-overflow-hidden">
-        <GraphViewer2
+        <GraphViewerReact
           func={func}
           pass={initialPass}
         />

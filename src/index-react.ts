@@ -1,2 +1,2 @@
 export * from "./index.js";
-export * from "./GraphViewer.js";
+export * from "./react-components.js";

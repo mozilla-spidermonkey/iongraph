@@ -1,7 +1,9 @@
-import { Graph } from "./Graph.js";
-import type { BlockPtr, Func, Pass, SampleCounts } from "./iongraph.js";
 import { dequal } from "./dequal.js";
 import { E } from "./dom.js";
+import { Graph } from "./Graph.js";
+import type { BlockPtr, Func, Pass, SampleCounts } from "./iongraph.js";
+
+type KeyPasses = [number | null, number | null, number | null, number | null];
 
 export interface GraphViewerProps {
   func: Func,
@@ -9,8 +11,6 @@ export interface GraphViewerProps {
 
   sampleCounts?: SampleCounts,
 }
-
-type KeyPasses = [number | null, number | null, number | null, number | null];
 
 export class GraphViewer {
   func: Func;
@@ -26,13 +26,13 @@ export class GraphViewer {
 
   constructor(root: HTMLElement, {
     func,
-    pass: propsPass = 0,
+    pass = 0,
 
     sampleCounts
   }: GraphViewerProps) {
     this.graph = null;
     this.func = func;
-    this.passNumber = propsPass;
+    this.passNumber = pass;
     this.sampleCounts = sampleCounts;
 
     this.keyPasses = [null, null, null, null];
@@ -79,7 +79,7 @@ export class GraphViewer {
       div.style.position = "relative";
     })
     this.sidebarLinks = func.passes.map((pass, i) => (
-      E("a", ["ig-link-normal", "ig-pv1", "ig-ph2", "ig-flex", "ig-g2",], a => {
+      E("a", ["ig-link-normal", "ig-pv1", "ig-ph2", "ig-flex", "ig-g2"], a => {
         a.href = "#";
         a.addEventListener("click", e => {
           e.preventDefault();
@@ -100,12 +100,12 @@ export class GraphViewer {
     ]);
     root.appendChild(this.container);
 
-    this.update();
-
     this.keydownHandler = this.keydownHandler.bind(this);
     this.tweakHandler = this.tweakHandler.bind(this);
     window.addEventListener("keydown", this.keydownHandler);
     window.addEventListener("tweak", this.tweakHandler);
+
+    this.update();
   }
 
   destroy() {
