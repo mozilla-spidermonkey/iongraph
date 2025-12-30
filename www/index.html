@@ -7,13 +7,13 @@
 </head>
 
 <body>
-  <div id="reactRoot"></div>
   <script type="module">
-    import { renderWebUI } from "./main.js";
+    import { WebUI } from "./main.js";
 
     new EventSource('/esbuild').addEventListener('change', () => location.reload());
 
-    renderWebUI(window.reactRoot);
+    const ui = new WebUI();
+    document.body.appendChild(ui.root);
 
     console.log("To show the tweaks panel, run showTweaks().");
     window.showTweaks = () => {

@@ -7,10 +7,11 @@
 </head>
 
 <body>
-  <div id="reactRoot"></div>
   <script>{{ include-dist "main.standalone.js" }}</script>
   <script>window.__exportedIonJSON = {{ IONJSON }}</script>
   <script>
-    iongraph.renderStandaloneUI(window.reactRoot, window.__exportedIonJSON);
+    const ui = new iongraph.StandaloneUI();
+    document.body.appendChild(ui.root);
+    ui.setIonJSON(window.__exportedIonJSON);
   </script>
 </body>

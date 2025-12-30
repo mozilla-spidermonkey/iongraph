@@ -41,16 +41,10 @@ console.log("Copying static files...");
 copyStaticFiles();
 
 const baseConfig = {
-  entryPoints: ["www/main.tsx"],
+  entryPoints: ["www/main.ts"],
   outdir: outDir,
   bundle: true,
   target: ["es2020"],
-  alias: {
-    "react": "preact/compat",
-    "react-dom/test-utils": "preact/test-utils",
-    "react-dom": "preact/compat",
-    "react/jsx-runtime": "preact/jsx-runtime",
-  },
 };
 const moduleConfig = {
   ...baseConfig,

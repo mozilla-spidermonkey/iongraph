@@ -9,7 +9,7 @@ type Falsy = null | undefined | false;
 /**
  * A slightly relaxed Node type for my DOM utilities.
  */
-export type BNode = Node | string | null;
+export type BNode = Node | string | Falsy;
 
 /**
  * Ensures a DOM Node.
