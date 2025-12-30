@@ -329,6 +329,10 @@ a.ig-link-normal {
   overflow-y: auto;
 }
 
+.ig-hide-if-empty:empty {
+  display: none;
+}
+
 /* Non-utility styles */
 
 .ig-graph {

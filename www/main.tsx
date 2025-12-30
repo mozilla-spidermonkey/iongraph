@@ -74,7 +74,7 @@ function MenuBar(props: MenuBarProps) {
   const funcIndexValid = 0 <= funcIndex && funcIndex < numFunctions;
 
   return <div className="ig-bb ig-flex ig-bg-white">
-    <div className="ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center ig-br">
+    <div className="ig-pv2 ig-ph3 ig-flex ig-g2 ig-items-center ig-br ig-hide-if-empty">
       {props.browse && <div>
         <input type="file" onChange={fileSelected} />
       </div>}
