@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import { GraphViewer } from '../src/GraphViewer.js';
 import { migrate, type IonJSON, type Func, type MIRBlock, type SampleCounts } from '../src/iongraph.js';
-import { assert } from '../src/utils.js';
+import { assert, must } from '../src/utils.js';
 
 export function renderWebUI(root: HTMLElement) {
   const reactRoot = createRoot(root);
@@ -30,13 +30,13 @@ interface MenuBarProps {
 }
 
 function MenuBar(props: MenuBarProps) {
-  const [[ionjson, rawIonJSON], setIonJSON] = useState<readonly [IonJSON | null, string]>([null, ""]);
+  const [ionjson, setIonJSON] = useState<IonJSON | null>(null);
   const [funcIndex, setFuncIndex] = useState<number>(initialFuncIndex ?? 0);
 
   // One-time initializer
   useEffect(() => {
     if (props.ionjson) {
-      setIonJSON([props.ionjson, JSON.stringify(props.ionjson)]);
+      setIonJSON(props.ionjson);
       props.funcSelected(props.ionjson.functions[funcIndex] ?? null);
     }
   }, []);
@@ -44,7 +44,7 @@ function MenuBar(props: MenuBarProps) {
   // Update ionjson if the prop changes.
   useEffect(() => {
     if (props.ionjson) {
-      setIonJSON([props.ionjson, JSON.stringify(props.ionjson)]);
+      setIonJSON(props.ionjson);
       props.funcSelected(props.ionjson.functions[funcIndex] ?? null);
     }
   }, [props.ionjson]);
@@ -65,7 +65,7 @@ function MenuBar(props: MenuBarProps) {
     const file = input.files[0];
     const newJSON = JSON.parse(await file.text());
     const migrated = migrate(newJSON);
-    setIonJSON([migrated, JSON.stringify(migrated)]);
+    setIonJSON(migrated);
     setFuncIndex(0);
     props.funcSelected(migrated.functions[0] ?? null);
   }
@@ -99,9 +99,10 @@ function MenuBar(props: MenuBarProps) {
       <div className="ig-flex-grow-1"></div>
       {props.export && <div>
         <button
-          disabled={!funcIndexValid}
+          disabled={!ionjson || !funcIndexValid}
           onClick={() => {
-            exportStandalone(ionjson?.functions[funcIndex].name ?? "", rawIonJSON, { funcIndex: funcIndex });
+            const ion = must(ionjson);
+            exportStandalone(ion.functions[funcIndex].name, ion, { funcIndex: funcIndex });
           }}
         >Export</button>
       </div>}
@@ -182,21 +183,15 @@ interface ExportOptions {
   funcIndex?: number,
 }
 
-async function exportStandalone(name: string, rawIonJSON: string, opts: ExportOptions = {}) {
-  let jsonString = rawIonJSON;
+async function exportStandalone(name: string, ionJSON: IonJSON, opts: ExportOptions = {}) {
+  let result = ionJSON;
   if (opts.funcIndex !== undefined) {
-    // HACK: Because the iongraph code actually mutates the input ion JSON, we
-    // can't just JSON.stringify it any more, so we have to take the raw JSON
-    // from the start of the whole process, re-parse it, filter it, and then
-    // generate new raw JSON to write to the file!
-    const parsedIonJSON = JSON.parse(rawIonJSON);
-    const func = parsedIonJSON.functions[opts.funcIndex];
-    const filteredIonJSON: IonJSON = { version: 1, functions: [func] };
-    jsonString = JSON.stringify(filteredIonJSON);
+    const func = ionJSON.functions[opts.funcIndex];
+    result = { version: 1, functions: [func] };
   }
 
   const template = await (await fetch("./standalone.html")).text();
-  const output = template.replace(/\{\{\s*IONJSON\s*\}\}/, jsonString);
+  const output = template.replace(/\{\{\s*IONJSON\s*\}\}/, JSON.stringify(result));
   const url = URL.createObjectURL(new Blob([output], { type: "text/html;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;
