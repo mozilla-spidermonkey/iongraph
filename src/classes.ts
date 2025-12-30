@@ -1,4 +1,5 @@
 // Inspired by the common `classnames` utility.
+// TODO: Is this used anymore?
 
 export type ClassDescriptor = string | {
   [conditionalClass: string]: any,
