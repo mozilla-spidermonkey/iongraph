@@ -24,7 +24,7 @@
   --ig-block-header-color: #0c0c0d;
   --ig-loop-header-color: #1fa411;
   --ig-movable-color: #1048af;
-  --ig-rob-color: #444;
+  --ig-rob-color: red;
   --ig-in-worklist-color: red;
 
   --ig-block-selected: #ffc863;
@@ -427,16 +427,18 @@ a.ig-link-normal {
   padding-left: 4px;
 }
 
-.ig-ins-att-RecoveredOnBailout {
-  color: var(--ig-rob-color);
-}
-
 .ig-ins-att-Movable {
   color: var(--ig-movable-color);
 }
 
 .ig-ins-att-Guard {
   text-decoration: underline;
+}
+
+.ig-ins-att-RecoveredOnBailout {
+  color: var(--ig-rob-color);
+  text-decoration-style: wavy;
+  text-decoration-line: line-through;
 }
 
 .ig-ins-att-InWorklist {
