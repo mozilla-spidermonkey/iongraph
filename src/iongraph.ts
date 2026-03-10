@@ -33,6 +33,13 @@ export interface MIRBlock {
   predecessors: BlockID[],
   successors: BlockID[],
   instructions: MIRInstruction[],
+  resumePoint?: ResumePoint,
+}
+
+export interface ResumePoint {
+  caller?: BlockID,
+  mode: string,
+  operands: (number | string)[],
 }
 
 export interface MIRInstruction {
@@ -44,6 +51,7 @@ export interface MIRInstruction {
   uses: number[],
   memInputs: unknown[], // TODO
   type: string,
+  resumePoint?: ResumePoint,
 }
 
 export interface LIRBlock {

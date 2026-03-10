@@ -472,3 +472,9 @@ a.ig-link-normal {
   --ig-highlight-color: transparent;
   background-color: var(--ig-highlight-color);
 }
+
+/* Live range 2px column */
+.ig-ins-liverange {
+  min-width: 2px;
+  max-width: 2px;
+}
