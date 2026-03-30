@@ -1214,7 +1214,7 @@ export class Graph {
 
     const insns = document.createElement("table");
     if (block.lir) {
-      insns.innerHTML = `
+      insns.setHTML(`
         <colgroup>
           <col style="width: 1px">
           <col style="width: auto">
@@ -1233,18 +1233,18 @@ export class Graph {
             </tr>
           </thead>
         ` : ""}
-      `;
+      `);
       for (const ins of block.lir.instructions) {
         insns.appendChild(this.renderLIRInstruction(ins));
       }
     } else {
-      insns.innerHTML = `
+      insns.setHTML(`
         <colgroup>
           <col style="width: 1px">
           <col style="width: auto">
           <col style="width: 1px">
         </colgroup>
-      `;
+      `);
       for (const ins of block.mir.instructions) {
         insns.appendChild(this.renderMIRInstruction(ins));
       }
@@ -1381,7 +1381,7 @@ export class Graph {
       for (const nodes of nodesByLayer) {
         for (const node of nodes) {
           const el = document.createElement("div");
-          el.innerHTML = `${node.id}<br>&lt;- ${node.srcNodes.map(n => n.id)}<br>-&gt; ${node.dstNodes.map(n => n.id)}<br>${node.flags}`;
+          el.setHTML(`${node.id}<br>&lt;- ${node.srcNodes.map(n => n.id)}<br>-&gt; ${node.dstNodes.map(n => n.id)}<br>${node.flags}`);
           el.style.position = "absolute";
           el.style.border = "1px solid black";
           // el.style.borderWidth = "1px 0 0 1px";
@@ -1418,9 +1418,9 @@ export class Graph {
     row.appendChild(num);
 
     const opcode = document.createElement("td");
-    opcode.innerHTML = prettyOpcode.replace(/([A-Za-z0-9_]+)#(\d+)/g, (_, name, id) => {
+    opcode.setHTML(prettyOpcode.replace(/([A-Za-z0-9_]+)#(\d+)/g, (_, name, id) => {
       return `<span class="ig-use ig-highlightable" data-ig-use="${id}">${name}#${id}</span>`;
-    });
+    }));
     row.appendChild(opcode);
 
     const type = document.createElement("td");
