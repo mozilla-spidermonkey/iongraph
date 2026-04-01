@@ -1,4 +1,4 @@
-import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockID, BlockPtr, InsPtr, InsID } from "./iongraph.js";
+import type { MIRBlock, LIRBlock, LIRInstruction, MIRInstruction, Pass, SampleCounts, BlockID, BlockPtr, InsPtr, InsID, ResumePoint } from "./iongraph.js";
 import { tweak } from "./tweak.js";
 import { assert, clamp, filerp, must } from "./utils.js";
 
@@ -179,6 +179,11 @@ export class Graph {
   insIDsByPtr: Map<InsPtr, InsID>;
   loops: LoopHeader[];
 
+  // Live range tracking
+  //
+  // Maps an SSA instruction ID to the set of instruction IDs that use it
+  liveMapSet: Map<InsID, Set<InsID>>;
+
   sampleCounts: SampleCounts | undefined;
   maxSampleCounts: [number, number]; // [total, self]
   heatmapMode: number; // SC_TOTAL or SC_SELF
@@ -347,7 +352,121 @@ export class Graph {
     const [nodesByLayer, layerHeights, trackHeights] = this.layout();
     this.render(nodesByLayer, layerHeights, trackHeights);
 
+    // Initialize live range tracking (must be after blocks are set up)
+    this.liveMapSet = new Map();
+    this.computeLiveRanges();
+
     this.addEventListeners();
+  }
+
+  // Update the live ranges, based on the live-set computed at a given
+  // instruction.
+  private updateLiveRanges(ins: MIRInstruction, liveSet: Set<InsID>) {
+    // For each SSA value in the live set, record that this instruction uses
+    // it.
+    for (const liveSSA of liveSet) {
+      if (!this.liveMapSet.has(liveSSA)) {
+        this.liveMapSet.set(liveSSA, new Set());
+      }
+      this.liveMapSet.get(liveSSA)!.add(ins.id as InsID);
+    }
+  }
+
+  // Computes live ranges for SSA instructions.
+  //
+  // This algorithm works by iterating backward through the control flow graph,
+  // maintaining a "live set" of SSA values that are used after the current point.
+  // For each instruction visited, we record that it uses all currently-live SSA values.
+  private computeLiveRanges() {
+    // Find exit blocks (blocks with no successors)
+    const exitBlocks = this.blocks.filter(b => b.succs.length === 0);
+
+    // Queue for fixpoint iteration - start from exit blocks
+    const blockQueue: Block[] = [...exitBlocks];
+
+    // For each block, we store the live set at the END of the block
+    // This maps block ID -> set of SSA IDs that are live after this block
+    const blockLiveOut = new Map<BlockID, Set<InsID>>();
+    for (const block in blockQueue) {
+      blockLiveOut.set(block.id, new Set<InsID>());
+    }
+
+    while (blockQueue.length > 0) {
+      const block = blockQueue.shift()!;
+
+      // Get the live set from successors (what's live after this block)
+      let liveSet = new Set<InsID>(blockLiveOut.get(block.id));
+
+      // Process instructions in reverse order (backward)
+      let instructions = [...block.mir.instructions].reverse();
+
+      // Handle phi separately as the index of each operands corresponds
+      // to the index of the predecessors.
+      const phiIndex = instructions.findIndex(x => x.opcode == "Phi");
+      const phiInstructions = instructions.splice(phiIndex);
+
+      // Handle resume points
+      function handleResumePoint(rp: ResumePoint, blocks: MIRBlock[]) {
+        while (rp) {
+          for (const operand of rp.operands) {
+            if (typeof operand === 'number') {
+              liveSet.add(operand as InsID);
+            }
+          }
+          if (rp.caller !== undefined) {
+            const callerBlock = blocks[rp.caller];
+            rp = callerBlock.resumePoint;
+          } else {
+            rp = undefined;
+          }
+        }
+      }
+
+      for (const ins of instructions) {
+        // Remove this instruction from the live set - it's not needed before
+        // its definition
+        liveSet.delete(ins.id as InsID);
+
+        // Add all operands of this instruction to the live set
+        for (const input of ins.inputs) {
+          liveSet.add(input as InsID);
+        }
+
+        // Add resume point operands to the live set
+        if (ins.resumePoint) {
+          handleResumePoint(ins.resumePoint, this.blocks);
+        }
+
+        this.updateLiveRanges(ins, liveSet);
+      }
+
+      // Compute the usage made by the entry resume points.
+      if (block.resumePoint !== undefined) {
+        handleResumePoint(block.resumePoint, this.blocks);
+      }
+
+      // Iterate over the liveSet coming from each predecessor.
+      // Queue predecessors which outgoing live sets got updated.
+      for (let pidx = 0; pidx < block.preds.length; pidx++) {
+        let predLiveSet = new Set<InsID>(liveSet);
+
+        for (const ins of phiInstructions) {
+          predLiveSet.delete(ins.id as InsID);
+          predLiveSet.add(ins.inputs[pidx] as InsID);
+          this.updateLiveRanges(ins, predLiveSet);
+        }
+
+        // Add predecessors to the queue, if the list of live instructions at
+        // the exit of the block increases.
+        let pred = block.preds[pidx];
+        let predSet = blockLiveOut.get(pred.id);
+        if (predSet === undefined || !predLiveSet.isSubsetOf(predSet)) {
+          predSet = predSet ?? new Set();
+          blockLiveOut.set(pred.id, predLiveSet.union(predSet));
+          blockQueue.push(pred);
+        }
+      }
+    }
   }
 
   private layout(): [LayoutNode[][], number[], number[]] {
@@ -1240,6 +1359,7 @@ export class Graph {
     } else {
       insns.innerHTML = `
         <colgroup>
+          <col style="width: 2px">
           <col style="width: 1px">
           <col style="width: auto">
           <col style="width: 1px">
@@ -1412,6 +1532,12 @@ export class Graph {
     row.setAttribute("data-ig-ins-ptr", `${ins.ptr}`);
     row.setAttribute("data-ig-ins-id", `${ins.id}`);
 
+    // Live-range 2px column (on the left)
+    const liveRangeCell = document.createElement("td");
+    liveRangeCell.classList.add("ig-ins-liverange");
+    liveRangeCell.setAttribute("data-ig-liverange-ins-id", `${ins.id}`);
+    row.appendChild(liveRangeCell);
+
     const num = document.createElement("td");
     num.classList.add("ig-ins-num");
     num.innerText = String(ins.id);
@@ -1546,7 +1672,7 @@ export class Graph {
     }
 
     // Clear all existing highlight styles
-    this.graphContainer.querySelectorAll<HTMLElement>(".ig-ins, .ig-use").forEach(ins => {
+    this.graphContainer.querySelectorAll<HTMLElement>(".ig-ins, .ig-use, .ig-ins-liverange").forEach(ins => {
       clearHighlight(ins);
     });
 
@@ -1561,6 +1687,25 @@ export class Graph {
         this.graphContainer.querySelectorAll<HTMLElement>(`.ig-use[data-ig-use="${id}"]`).forEach(use => {
           highlight(use, color);
         });
+
+        // Also highlight the live-range column for this instruction and its uses
+        const insID = this.insIDsByPtr.get(hi.ptr);
+        if (insID !== undefined) {
+          const liveCell = this.graphContainer.querySelector<HTMLElement>(`.ig-ins-liverange[data-ig-liverange-ins-id="${insID}"]`);
+          if (liveCell) {
+            highlight(liveCell, color);
+          }
+          // Highlight cells for instructions that span across the live range.
+          const spanningInstructions = this.liveMapSet.get(insID);
+          if (spanningInstructions) {
+            for (const liveSpanInsID of spanningInstructions) {
+              const liveSpanCell = this.graphContainer.querySelector<HTMLElement>(`.ig-ins-liverange[data-ig-liverange-ins-id="${liveSpanInsID}"]`);
+              if (liveSpanCell) {
+                highlight(liveSpanCell, color);
+              }
+            }
+          }
+        }
       }
     }
   }
